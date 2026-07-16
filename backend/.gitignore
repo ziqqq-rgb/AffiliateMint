@@ -1,0 +1,9 @@
+backend/.env.example
+__pycache__/
+*.pyc
+.env
+*.db
+node_modules/
+dist/
+.browser_profile/
+.pytest_cache/
