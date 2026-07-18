@@ -3,9 +3,9 @@ Mobile scraper entrypoint - the OCR-based equivalent of scraper/run.py.
 
 TikTok's product-browsing screens render everything as images/canvas
 (confirmed empirically - see mobile/README.md), so there is no
-accessibility tree to read. locators.py's original element-ID plan
-cannot work here, no matter how it's tuned - this reads the screen
-with OCR instead (scraper/mobile/ocr.py).
+accessibility tree to read. This reads the screen with OCR instead
+(scraper/mobile/ocr.py), after navigate.py taps its way there
+automatically (scraper/mobile/navigate.py).
 
 Returns the same shape as scraper/run.py so
 app/mcp_tools/scraper_tool.py can call either implementation.
@@ -14,28 +14,28 @@ app/mcp_tools/scraper_tool.py can call either implementation.
 import logging
 
 from scraper.filters import apply_filters
+from scraper.mobile import navigate
 from scraper.mobile.driver import app_session, human_delay
 from scraper.mobile.ocr import extract_products, screenshot_to_lines
 
 logger = logging.getLogger(__name__)
 
 
-def scrape_products(category: str = "current screen") -> list[dict]:
-    """Launches TikTok, waits for you to navigate to the right screen, then
-    OCRs whatever's on screen.
+def scrape_products(product_type: str) -> list[dict]:
+    """Launches TikTok, navigates to the Product ranking screen, drills
+    into the full list for `product_type` (e.g. "Tea"), then OCRs the
+    result list - this is the screen with both price and commission
+    (the ranking overview alone doesn't have enough data to compute
+    commission_percentage).
 
-    Every new Appium session force-launches the app to its home/splash
-    screen - it can NOT resume wherever you last had it open, even
-    though `no_reset=True` keeps you logged in. So this pauses and
-    waits for you to manually navigate before taking the screenshot.
-    `category` is only used for the log message, not navigation.
+    Raises navigate.NavigationError if a tap doesn't land where
+    expected - see navigate.py's module docstring for why that's a
+    hard failure rather than a silent continue (NFR 5.1).
     """
     with app_session() as driver:
         human_delay()
-        print("\nTikTok just relaunched to its home screen (this always happens when")
-        print("a new automation session starts - it can't resume wherever you were).")
-        print("Navigate to the product screen you want scraped (e.g. Product ranking).")
-        input("Press Enter here once that screen is on screen and ready...\n")
+        navigate.navigate_to_product_ranking(driver)
+        navigate.open_product_type_list(driver, product_type)
 
         png_bytes = driver.get_screenshot_as_png()
 
@@ -47,8 +47,6 @@ def scrape_products(category: str = "current screen") -> list[dict]:
 
     if not shortlist:
         # NFR 5.1 / FR-1.6: fail loudly, same rule as the other scrapers.
-        # Extra context here because OCR screens often don't show every
-        # field the web scraper expects (see the note below).
         logger.warning(
             "OCR scrape for %r returned 0 products passing filters (%d read "
             "off screen). Note: stock_volume is never available via OCR on "
@@ -78,13 +76,13 @@ def _to_scraped_product_shape(p: dict) -> dict:
         "stock_volume": 0,  # not shown on any OCR'd screen we've found so far
         "units_sold": p["units_sold"],
         "product_url": "",  # OCR has no URL to offer
-        "raw_payload": p["raw_ocr_text"],  # FR-1.4 spirit: keep the raw read, even though it's OCR text not JSON
+        "raw_payload": p["raw_ocr_text"],  # FR-1.4 spirit: never lose the raw read
     }
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    results = scrape_products(category="product ranking screen")
+    results = scrape_products(product_type="Tea")
     print(f"Shortlisted {len(results)} products")
     for r in results:
         print(r)
