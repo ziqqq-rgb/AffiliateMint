@@ -25,6 +25,9 @@ PRICE_RE = re.compile(r"RM\s?[\d,]+\.\d{2}")
 EARN_RE = re.compile(r"Earn\s+RM\s?[\d,]+\.\d{2}", re.IGNORECASE)
 SOLD_RE = re.compile(r"([\d.,]+K?)\s*sold", re.IGNORECASE)
 RATING_RE = re.compile(r"(\d\.\d)\s*\(([\d.,]+K?)\)")
+_MONEY_TOKEN_RE = re.compile(r"RM\s?[\dOolIS.,]+")
+_OCR_DIGIT_FIXES = str.maketrans({"O": "0", "o": "0", "l": "1", "I": "1", "S": "5"})
+_TIME_RE = re.compile(r"^\d{1,2}:\d{2}\s")  # status bar clock, e.g. "12:22 Sat18Jul"
 
 # Fixed UI microcopy that is plain text but NEVER a product title, even
 # though it can be long enough to otherwise pass the title heuristic.
@@ -34,7 +37,7 @@ MIN_TITLE_LENGTH = 8
 
 # Tesseract confidence scores below this are treated as noise (stray
 # pixels misread as characters), not real text.
-MIN_CONFIDENCE = 40
+MIN_CONFIDENCE = 25
 
 
 @dataclass
@@ -43,13 +46,28 @@ class OcrLine:
     top: int
     left: int
 
+NON_TITLE_PHRASES = (
+    "free sample",
+    "refundable sample",
+    "newly listed",
+    "add",
+    "top selling",
+    "based on cumulative",
+    "sold past week",  # catches lines where the leading count got dropped
+)
+
+
+def _fix_money_ocr_errors(text: str) -> str:
+    """Tesseract sometimes reads a digit as a similar-looking letter
+    inside a money amount ('RM0.47' -> 'RMO.47'). That breaks
+    PRICE_RE/EARN_RE, which then makes the line look like a fresh
+    product title instead of price data. Only fix digits INSIDE 'RM...'
+    tokens so real title text is never touched."""
+    return _MONEY_TOKEN_RE.sub(lambda m: m.group().translate(_OCR_DIGIT_FIXES), text)
 
 def screenshot_to_lines(png_bytes: bytes) -> list[OcrLine]:
-    """Runs OCR on a screenshot and reconstructs it into lines of text
-    with their on-screen position, using Tesseract's own line grouping
-    (block/paragraph/line numbers) rather than re-inventing clustering.
-    """
     image = Image.open(io.BytesIO(png_bytes))
+    image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS) 
     data = pytesseract.image_to_data(image, output_type=Output.DICT)
 
     lines: dict[tuple, list[tuple]] = {}
@@ -64,7 +82,7 @@ def screenshot_to_lines(png_bytes: bytes) -> list[OcrLine]:
         words.sort(key=lambda w: w[1])  # left-to-right within the line
         result.append(
             OcrLine(
-                text=" ".join(w[0] for w in words),
+                text=_fix_money_ocr_errors(" ".join(w[0] for w in words)),
                 top=min(w[2] for w in words),
                 left=min(w[1] for w in words),
             )
@@ -73,7 +91,7 @@ def screenshot_to_lines(png_bytes: bytes) -> list[OcrLine]:
     return sorted(result, key=lambda line: line.top)
 
 
-def extract_products(lines: list[OcrLine]) -> list[dict]:
+def extract_products(lines: list[OcrLine], category: str | None = None) -> list[dict]:
     """Groups OCR'd lines into product cards and pulls out the fields
     we care about with regex.
 
@@ -87,7 +105,7 @@ def extract_products(lines: list[OcrLine]) -> list[dict]:
     sidesteps that asymmetry entirely - and means no fixed pixel
     constant is needed to size the grouping window.
     """
-    titles = _find_title_lines(lines)
+    titles = _find_title_lines(lines, category)
     if not titles:
         return []
 
@@ -99,17 +117,7 @@ def extract_products(lines: list[OcrLine]) -> list[dict]:
     return cards
 
 
-def _find_title_lines(lines: list[OcrLine]) -> list[OcrLine]:
-    """A title line is plain product text: long enough to be a real
-    name, and not one of the fixed price/sold/sample labels every card
-    also has.
-
-    TODO: title extraction is still a heuristic - expect it to
-    occasionally grab a long promo banner line instead of a real
-    title. Everything else (price, commission, sold count, rating) is
-    regex-matched directly and reliable when OCR reads the text
-    correctly.
-    """
+def _find_title_lines(lines: list[OcrLine], category: str | None = None) -> list[OcrLine]:
     candidates = [
         line
         for line in lines
@@ -117,7 +125,9 @@ def _find_title_lines(lines: list[OcrLine]) -> list[OcrLine]:
         and not PRICE_RE.search(line.text)
         and not EARN_RE.search(line.text)
         and not SOLD_RE.search(line.text)
+        and not _TIME_RE.match(line.text)
         and not any(phrase in line.text.lower() for phrase in NON_TITLE_PHRASES)
+        and (category is None or line.text.strip().lower() != category.strip().lower())
     ]
     return sorted(candidates, key=lambda line: line.top)
 

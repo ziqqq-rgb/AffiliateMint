@@ -118,3 +118,11 @@ def _tap_matching_text(driver: WebDriver, text: str) -> None:
     if match is None:
         raise NavigationError(f"Could not find {text!r} anywhere on screen to tap.")
     driver.tap([(match.left, match.top)])
+
+def scroll_down(driver: WebDriver, screen_fraction: float = 0.7) -> None:
+    """Swipes up to reveal more products below the fold."""
+    size = driver.get_window_size()
+    x = int(size["width"] * 0.5)
+    start_y = int(size["height"] * 0.8)
+    end_y = int(size["height"] * (0.8 - screen_fraction))
+    driver.swipe(x, start_y, x, end_y, duration=400)

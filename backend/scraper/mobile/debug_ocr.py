@@ -21,6 +21,8 @@ SCREENSHOT_PATH = "debug_screenshot.png"
 
 
 def main() -> None:
+    category = input("Category name shown on screen (or press Enter to skip): ").strip() or None
+
     with app_session() as driver:
         human_delay()
         print("\nNavigate to the product screen you want to debug.")
@@ -39,7 +41,7 @@ def main() -> None:
     for line in lines:
         print(f"  top={line.top:4d}  {line.text!r}")
 
-    products = extract_products(lines)
+    products = extract_products(lines, category=category)
     print(f"\nOf those, {len(products)} matched a price/earn pattern and became a card:")
     for p in products:
         print(" ", p)
