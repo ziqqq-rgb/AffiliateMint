@@ -1,3 +1,4 @@
 Appium-Python-Client
 pytesseract
 Pillow
+httpx

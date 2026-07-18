@@ -1,4 +1,21 @@
-# backend/scraper/mobile/driver.py
+"""
+Appium session management for the mobile scraper.
+
+Mirrors scraper/browser.py's role for the web scraper: this is the one
+place that opens/closes the connection to the device, so every other
+mobile-scraper module just gets a ready `driver` to interact with.
+
+Appium's Python client is synchronous (Selenium-style), unlike the
+Playwright web scraper, so there's no async/await here on purpose.
+
+Prerequisites (see mobile/README.md for the full walkthrough):
+  1. `appium` server running in a terminal (default port 4723)
+  2. A real Android phone connected via USB with Developer Mode + USB
+     debugging on, visible to `adb devices`
+  3. The TikTok app already installed and logged in (run
+     login_helper.py first if it isn't)
+"""
+
 import random
 import time
 from contextlib import contextmanager
@@ -20,20 +37,12 @@ def app_session():
     if config.platform_version:
         options.platform_version = config.platform_version
     options.new_command_timeout = config.new_command_timeout_seconds
+    # Attach to the app as-is - don't reinstall or wipe the session you
+    # already logged into via login_helper.py.
     options.no_reset = True
 
     driver = webdriver.Remote(config.appium_server_url, options=options)
     try:
-        # Force a fresh, predictable launch every run - if TikTok was
-        # already running in the background from a previous session,
-        # Appium can silently attach to whatever screen it was left on
-        # instead of actually opening it fresh. This is what caused
-        # "sometimes it opens, sometimes it doesn't."
-        driver.terminate_app(config.app_package)
-        time.sleep(1.0)
-        driver.activate_app(config.app_package)
-        time.sleep(4.0)  # let the home feed finish rendering before any tap fires
-
         yield driver
     finally:
         driver.quit()

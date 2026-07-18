@@ -16,19 +16,16 @@ class Settings(BaseSettings):
 
     hermes_api_url: str = "http://localhost:8080"  
     hermes_api_key: str = ""
-
+    nvidia_api_key: str = ""
+    
     scraper_headless: bool = True
     scraper_shortlist_size: int = 5
     scraper_min_commission_pct: float = 15.0
     scraper_min_stock: int = 50
 
-    nvidia_api_key: str = ""
-    nvidia_api_url: str = "https://integrate.api.nvidia.com/v1"
-    nvidia_vision_model: str = "meta/llama-3.2-11b-vision-instruct"
-
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
-    
+
     class Config:
         env_file = ".env"
 

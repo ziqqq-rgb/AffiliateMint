@@ -1,106 +1,143 @@
 """
-Discovers every category section on the Product Ranking screen.
+Discovers tappable category labels on the Product Ranking screen so
+navigate.py can drive TikTok without any fixed/guessed coordinates -
+every tap target comes from OCR reading the CURRENT screen each run,
+not a hardcoded pixel map that breaks the moment TikTok reflows a
+layout.
 
-Crops out the top ~20% of each screenshot before sending it to the
-vision model - that region is the fixed tab bar (For You, Pet
-Supplies, Home Improvement...), which is navigation chrome, not a
-real section heading. Without the crop, the model mixes tab-bar
-labels in with genuine headings, which is what caused categories to
-appear out of order and duplicated last time.
+Two things get discovered here, matching the two-step picker flow
+(big category -> specific section):
+  - discover_top_tabs: the horizontal tab row ("For you", "Food &
+    Beverages", "Pet Supplies", ...) near the top of the screen.
+    Built from raw WORD positions, not Tesseract's own line grouping -
+    confirmed empirically that Tesseract merges an entire row of
+    adjacent tab buttons into one single garbled "line", so tabs have
+    to be reconstructed by clustering words on large horizontal gaps
+    (~4-8px within one tab's own words vs ~30px+ between tabs).
+  - discover_sub_categories: section headings inside the body (e.g.
+    "Instant Hijab") identified by the "N new products >" link that
+    sits in the same row - that link is what actually gets tapped.
+    On the real screen this heading sits BELOW its anchor line, not
+    above it - don't assume a direction, search both ways.
 """
 
-import base64
 import io
-import json
+import re
+from dataclasses import dataclass
 
-import httpx
+import pytesseract
 from PIL import Image
+from pytesseract import Output
 
-from app.config import settings
-from scraper.mobile import navigate
-from scraper.mobile.driver import human_delay
+from scraper.mobile.ocr import MIN_CONFIDENCE, OcrLine
 
-CATEGORY_PROMPT = """\
-This is the PRODUCT section of TikTok Shop's "Product ranking" screen
-(navigation chrome has already been removed). List every category
-heading visible (e.g. "Instant Hijab", "Tea") - each sits directly
-above a row of product cards. Do not include "Top selling" badges or
-individual product titles.
+NEW_PRODUCTS_RE = re.compile(r"\d+\s*new products?", re.IGNORECASE)
+_CLOCK_RE = re.compile(r"^\d{1,2}:\d{2}")
 
-Return ONLY a JSON array of short strings, nothing else - no
-explanation, no markdown formatting, no trailing commentary.
-If none are visible, return [].
-"""
+# Top ~16% of the screen covers the tab row on the devices we've
+# tested (landscape tablet, 1280x800) - tune if tabs are being missed
+# or body text is getting caught. Check with a debug print of
+# `data["top"]` values for your device if this needs adjusting.
+TAB_BAR_HEIGHT_FRACTION = 0.16
 
-_CROP_TOP_FRACTION = 0.20  # tune if TikTok's header height changes
+# Gap between two OCR'd WORDS bigger than this (in pixels) is treated
+# as a boundary between two separate tabs, not two words in the same
+# tab. Calibrated against a real screenshot: within-tab gaps were
+# ~4-8px, between-tab gaps were ~30-35px - wide margin either side.
+WORD_GAP_TAB_BOUNDARY_PX = 20
 
+# Two words only belong to the same tab if they're also on the same
+# visual row - without this, words from completely different rows
+# (e.g. the status bar clock and the tab row below it) can end up in
+# one cluster just because they're close in x-position once sorted.
+ROW_TOLERANCE_PX = 15
 
-def discover_categories(driver, max_scrolls: int = 12) -> tuple[list[str], int]:
-    """Returns (categories found, number of scrolls performed) - the
-    scroll count lets the caller scroll back up by the same amount
-    afterward instead of guessing."""
-    seen: list[str] = []
-    scrolls_done = 0
-
-    for _ in range(max_scrolls):
-        found = _extract_categories(driver.get_screenshot_as_png())
-        new_ones = [c for c in found if c not in seen]
-        if not new_ones:
-            break
-
-        seen.extend(new_ones)
-        navigate.scroll_down(driver)
-        human_delay()
-        scrolls_done += 1
-
-    return seen, scrolls_done
+# A heading counts as "belonging to" a "N new products" link if it
+# sits within this many pixels of it on screen, ABOVE OR BELOW -
+# TikTok's real layout puts the heading below the link, not above it.
+HEADING_PROXIMITY_PX = 80
 
 
-def _crop_tab_bar(png_bytes: bytes) -> bytes:
+@dataclass
+class TappableLabel:
+    text: str
+    tap_x: int
+    tap_y: int
+
+
+def discover_top_tabs(png_bytes: bytes) -> list[TappableLabel]:
+    """Reads the horizontal category tab row by clustering individual
+    OCR'd words by horizontal gap. Needs the raw screenshot (not
+    pre-built OcrLines) because it works at the word level, not the
+    line level - see the module docstring for why."""
     image = Image.open(io.BytesIO(png_bytes))
-    cropped = image.crop((0, int(image.height * _CROP_TOP_FRACTION), image.width, image.height))
-    buffer = io.BytesIO()
-    cropped.save(buffer, format="PNG")
-    return buffer.getvalue()
+    band_height = image.height * TAB_BAR_HEIGHT_FRACTION
+    data = pytesseract.image_to_data(image, output_type=Output.DICT)
+
+    words = []
+    for i, text in enumerate(data["text"]):
+        if not text.strip() or int(data["conf"][i]) < MIN_CONFIDENCE:
+            continue
+        if data["top"][i] > band_height:
+            continue
+        words.append((text, data["left"][i], data["top"][i], data["width"][i]))
+
+    labels = _cluster_words_by_gap(words)
+    return [
+        label
+        for label in labels
+        if not _CLOCK_RE.match(label.text)
+        and "product ranking" not in label.text.lower()
+    ]
 
 
-# backend/scraper/mobile/categories.py
+def _cluster_words_by_gap(words: list[tuple]) -> list[TappableLabel]:
+    if not words:
+        return []
+    words = sorted(words, key=lambda w: w[1])  # left to right
 
-def _extract_categories(png_bytes: bytes) -> list[str]:
-    cropped = _crop_tab_bar(png_bytes)
-    image_b64 = base64.b64encode(cropped).decode()
+    clusters = [[words[0]]]
+    for word in words[1:]:
+        _, prev_left, prev_top, prev_width = clusters[-1][-1]
+        gap = word[1] - (prev_left + prev_width)
+        same_row = abs(word[2] - prev_top) <= ROW_TOLERANCE_PX
+        if same_row and gap <= WORD_GAP_TAB_BOUNDARY_PX:
+            clusters[-1].append(word)
+        else:
+            clusters.append([word])
 
-    response = httpx.post(
-        f"{settings.nvidia_api_url}/chat/completions",
-        headers={"Authorization": f"Bearer {settings.nvidia_api_key}"},
-        json={
-            "model": settings.nvidia_vision_model,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": CATEGORY_PROMPT},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
-                ],
-            }],
-            "max_tokens": 1500,  # was 500 - too small, was truncating the JSON mid-string
-            "temperature": 0.0,
-        },
-        timeout=httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0),
-    )
-    response.raise_for_status()
-    raw_text = response.json()["choices"][0]["message"]["content"]
-    return _parse_category_response(raw_text)
+    labels = []
+    for cluster in clusters:
+        text = " ".join(w[0] for w in cluster)
+        left = min(w[1] for w in cluster)
+        top = min(w[2] for w in cluster)
+        right = max(w[1] + w[3] for w in cluster)
+        labels.append(TappableLabel(text=text, tap_x=(left + right) // 2, tap_y=top + 15))
+    return labels
 
 
-def _parse_category_response(raw_text: str) -> list[str]:
-    cleaned = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        # Fail with the actual text the model sent back, not just a
-        # generic parse error - makes it obvious at a glance whether
-        # this was truncation, a stray comment, or something else.
-        raise RuntimeError(
-            f"Model returned invalid JSON for category list: {e}\n"
-            f"Raw response was:\n{raw_text!r}"
-        )
+def discover_sub_categories(lines: list[OcrLine]) -> list[TappableLabel]:
+    """Finds section headings (e.g. "Instant Hijab") by looking for a
+    short text line sitting near a "N new products" link - the same
+    visual pattern a human uses to spot these sections. The link
+    itself is what gets tapped (has a ">" affordance); the heading's
+    text is what gets shown as the readable category name."""
+    anchors = [l for l in lines if NEW_PRODUCTS_RE.search(l.text)]
+    labels = []
+    for anchor in anchors:
+        heading = _nearest_heading(lines, anchor)
+        if heading:
+            labels.append(TappableLabel(text=heading.text, tap_x=anchor.left + 40, tap_y=anchor.top + 15))
+    return labels
+
+
+def _nearest_heading(lines: list[OcrLine], anchor: OcrLine) -> OcrLine | None:
+    nearby = [
+        l
+        for l in lines
+        if l is not anchor
+        and abs(l.top - anchor.top) <= HEADING_PROXIMITY_PX
+        and not NEW_PRODUCTS_RE.search(l.text)
+        and "top selling" not in l.text.lower()
+    ]
+    return min(nearby, key=lambda l: abs(l.top - anchor.top)) if nearby else None
