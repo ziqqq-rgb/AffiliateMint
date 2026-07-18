@@ -38,7 +38,7 @@ MIN_TITLE_LENGTH = 8
 # Tesseract confidence scores below this are treated as noise (stray
 # pixels misread as characters), not real text.
 MIN_CONFIDENCE = 25
-
+_UPSCALE_FACTOR = 2
 
 @dataclass
 class OcrLine:
@@ -67,6 +67,32 @@ def _fix_money_ocr_errors(text: str) -> str:
 
 def screenshot_to_lines(png_bytes: bytes) -> list[OcrLine]:
     image = Image.open(io.BytesIO(png_bytes))
+    upscaled = image.resize((image.width * _UPSCALE_FACTOR, image.height * _UPSCALE_FACTOR), Image.LANCZOS)
+    data = pytesseract.image_to_data(upscaled, output_type=Output.DICT)
+
+    lines: dict[tuple, list[tuple]] = {}
+    for i, word in enumerate(data["text"]):
+        if not word.strip() or int(data["conf"][i]) < MIN_CONFIDENCE:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        lines.setdefault(key, []).append((word, data["left"][i], data["top"][i]))
+
+    result = []
+    for words in lines.values():
+        words.sort(key=lambda w: w[1])
+        result.append(
+            OcrLine(
+                text=_fix_money_ocr_errors(" ".join(w[0] for w in words)),
+                # Divide back down to the ORIGINAL screenshot's pixel
+                # space - upscaling improves OCR accuracy, but every
+                # caller (tap coordinates, debug tools) expects
+                # positions in the real screenshot, not the 2x version.
+                top=min(w[2] for w in words) // _UPSCALE_FACTOR,
+                left=min(w[1] for w in words) // _UPSCALE_FACTOR,
+            )
+        )
+
+    return sorted(result, key=lambda line: line.top)   
     image = image.resize((image.width * 2, image.height * 2), Image.LANCZOS) 
     data = pytesseract.image_to_data(image, output_type=Output.DICT)
 

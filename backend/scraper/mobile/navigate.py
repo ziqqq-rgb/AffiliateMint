@@ -29,9 +29,8 @@ class NavigationError(RuntimeError):
 
 
 def navigate_to_product_ranking(driver: WebDriver) -> None:
-    """Walks the fixed tap path from app-open to the Product ranking
-    screen. Raises NavigationError the moment a step doesn't land
-    where expected, rather than blindly continuing."""
+    time.sleep(4.0)  # cold app-launch buffer - feed needs to render before any tap is safe
+
     for step in HOME_TO_PRODUCT_RANKING:
         _tap_fraction(driver, step.x_fraction, step.y_fraction)
         time.sleep(step.wait_seconds)
@@ -126,3 +125,28 @@ def scroll_down(driver: WebDriver, screen_fraction: float = 0.7) -> None:
     start_y = int(size["height"] * 0.8)
     end_y = int(size["height"] * (0.8 - screen_fraction))
     driver.swipe(x, start_y, x, end_y, duration=400)
+
+def scroll_up(driver, screen_fraction: float = 0.7) -> None:
+    """Reverse of scroll_down - used to walk back toward the top after
+    discovery has scrolled all the way to the bottom."""
+    size = driver.get_window_size()
+    x = int(size["width"] * 0.5)
+    start_y = int(size["height"] * (0.8 - screen_fraction))
+    end_y = int(size["height"] * 0.8)
+    driver.swipe(x, start_y, x, end_y, duration=400)
+
+
+def find_and_open_category(driver, category: str, max_scrolls: int = 15) -> None:
+    """Scrolls from wherever the driver currently is, checking each
+    screen with OCR (fast, free - no AI call needed just to match
+    visible text) until the chosen category is found, then opens it.
+    Fails loudly if it scrolls past max_scrolls without finding it."""
+    for _ in range(max_scrolls):
+        try:
+            open_product_type_list(driver, category)
+            return
+        except NavigationError:
+            scroll_down(driver)
+            time.sleep(2.0)
+
+    raise NavigationError(f"Could not find category {category!r} after {max_scrolls} scrolls.")

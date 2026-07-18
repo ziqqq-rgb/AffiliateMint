@@ -24,28 +24,27 @@ logger = logging.getLogger(__name__)
 
 
 def scrape_products(product_type: str, max_scrolls: int = 6) -> list[dict]:
-    """Launches TikTok, navigates to the Product ranking screen, drills
-    into the full list for `product_type`, then scrolls + reads each
-    screen with AI vision until no new products appear."""
+    """Standalone entrypoint - opens its own session. Use this for
+    cron/scheduled runs where the category is already known."""
     with app_session() as driver:
         human_delay()
         navigate.navigate_to_product_ranking(driver)
         navigate.open_product_type_list(driver, product_type)
-        ai_products = _collect_by_scrolling(driver, max_scrolls)
-
+        return scrape_current_screen(driver, max_scrolls)
+    
+def scrape_current_screen(driver, max_scrolls: int = 6) -> list[dict]:
+    """Assumes `driver` is already sitting on an opened product-type
+    list screen. Split out from scrape_products() so
+    scrape_interactive.py can reuse it inside ONE continuous app
+    session instead of opening a second one (which was restarting
+    TikTok between every step)."""
+    ai_products = _collect_by_scrolling(driver, max_scrolls)
     products = [_to_scraped_product_shape(p) for p in ai_products]
     shortlist = apply_filters(products)
 
     if not shortlist:
-        # NFR 5.1 / FR-1.6: fail loudly, same rule as the other scrapers.
-        logger.warning(
-            "Mobile scrape for %r returned 0 products passing filters "
-            "(%d read off screen).",
-            product_type,
-            len(products),
-        )
+        logger.warning("Scrape returned 0 products passing filters (%d read off screen).", len(products))
     return shortlist
-
 
 def _collect_by_scrolling(driver, max_scrolls: int) -> list[dict]:
     """One screen only shows ~4 products, so screenshot -> scroll ->
