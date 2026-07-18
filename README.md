@@ -28,6 +28,25 @@ Deliberately left as TODOs, because only you can fill them in:
 2. `backend/agents/hermes_client.py` - point `HERMES_API_URL` at your
    running Hermes Agent instance.
 
+## Two scraper implementations
+
+TikTok Shop's affiliate product search often lives inside the native
+app, not any page a browser can reach - so there are two scrapers,
+pick whichever matches where you actually find products:
+
+- `backend/scraper/` - Playwright, intercepts network responses from
+  a browser. Use this if your product search works on the mobile web
+  or desktop site.
+- `backend/scraper/mobile/` - Appium, reads the real TikTok app on a
+  connected Android phone via UI automation. See
+  `backend/scraper/mobile/README.md` for full setup (Appium server,
+  ADB, Appium Inspector to find element IDs). Use this if product
+  search only works in the installed app.
+
+Both return the same shape (a plain list of product dicts) and share
+the same filter rules in `scraper/filters.py`, so
+`app/mcp_tools/scraper_tool.py` can be pointed at either one.
+
 ## Folder map
 
     backend/
