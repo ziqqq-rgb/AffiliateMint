@@ -17,9 +17,9 @@ class ScraperConfig:
 
     search_url_template: str = "https://shop.tiktok.com/search?q={query}"
 
-    min_commission_pct: float = 15.0
+    min_commission_pct: float = 1.0
     min_stock: int = 50
-    min_review_score: float = 4.0
+    min_review_score: float = 1.0
     shortlist_size: int = 5
 
     # NFR 5.2 scraping safety: keep these conservative, randomized

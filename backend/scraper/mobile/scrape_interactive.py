@@ -23,6 +23,7 @@ Flow (unchanged from the OCR version):
 
 import logging
 
+from scraper.mobile import driver
 from scraper.filters import apply_filters
 from scraper.mobile import navigate
 from scraper.mobile.driver import app_session, human_delay
@@ -81,6 +82,13 @@ def scrape_interactive(max_scroll_attempts: int = 10) -> list[dict]:
 
         navigate.tap_xy(driver, chosen_label["x"], chosen_label["y"])
         human_delay()
+
+        if not _verify_landed_on(driver, chosen_label["text"]):
+            raise RuntimeError(
+                f"Tapped for {chosen_label['text']!r} but didn't land on that "
+                f"page - the tap likely missed (scroll position drifted from "
+                f"discovery time). Re-run and try again."
+            )
 
         png_bytes = driver.get_screenshot_as_png()
 
@@ -158,6 +166,16 @@ def _scroll_to_top(driver, max_scroll_attempts: int) -> None:
     for _ in range(max_scroll_attempts):
         navigate.scroll_up(driver)
 
+def _verify_landed_on(driver, expected_title: str) -> bool:
+    """After tapping a sub-category, confirm we actually landed on its
+    page (checks for the big title text at the top of screen, e.g.
+    'Candy') instead of blindly trusting the tap worked. Real-device
+    swipes don't always move the same distance twice, so the tap
+    coordinates we recorded during discovery can miss - this catches
+    that instead of silently scraping the wrong screen."""
+    png_bytes = driver.get_screenshot_as_png()
+    match = find_label_vlm(png_bytes, expected_title)
+    return match is not None
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
