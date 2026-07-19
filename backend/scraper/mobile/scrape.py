@@ -43,7 +43,7 @@ def scrape_products(category: str = "current screen") -> list[dict]:
     ocr_products = extract_products(lines)
 
     products = [to_scraped_product_shape(p) for p in ocr_products]
-    shortlist = apply_filters(products)
+    shortlist = apply_filters(products, require_stock=False, require_rating=False)
 
     if not shortlist:
         # NFR 5.1 / FR-1.6: fail loudly, same rule as the other scrapers.

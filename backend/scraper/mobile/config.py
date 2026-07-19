@@ -17,13 +17,13 @@ from typing import Optional
 class MobileScraperConfig:
     appium_server_url: str = "http://127.0.0.1:4723"
 
-    # Confirmed via web search (July 2026): TikTok's real Android
-    # package name. Double-check on your own device with:
+    # Confirmed via real device testing (July 2026) on a Malaysian
+    # TikTok install. Double-check on your own device with:
     #   adb shell pm list packages | grep tiktok
     app_package: str = "com.ss.android.ugc.trill"
 
-    # TODO: confirm the real launch activity with the app open:
-    #   adb shell dumpsys window | grep mCurrentFocus
+    # Confirmed via: adb shell dumpsys window | grep mCurrentFocus
+    # while TikTok was open on the same device.
     app_activity: str = "com.ss.android.ugc.aweme.splash.SplashActivity"
 
     platform_version: Optional[str] = None  # None = auto-detect from the connected device

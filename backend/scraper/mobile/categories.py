@@ -33,6 +33,13 @@ from scraper.mobile.ocr import MIN_CONFIDENCE, OcrLine
 
 NEW_PRODUCTS_RE = re.compile(r"\d+\s*new products?", re.IGNORECASE)
 _CLOCK_RE = re.compile(r"^\d{1,2}:\d{2}")
+_HAS_REAL_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+_TITLE_WORDS = {"product", "ranking"}
+
+# Status bar (clock, date, signal icons) sits in roughly the top 5% of
+# the screen - skip it entirely rather than trying to pattern-match
+# every possible date format ("Sun 19", "Jul", ...).
+TAB_BAR_MIN_FRACTION = 0.05
 
 # Top ~16% of the screen covers the tab row on the devices we've
 # tested (landscape tablet, 1280x800) - tune if tabs are being missed
@@ -71,24 +78,36 @@ def discover_top_tabs(png_bytes: bytes) -> list[TappableLabel]:
     pre-built OcrLines) because it works at the word level, not the
     line level - see the module docstring for why."""
     image = Image.open(io.BytesIO(png_bytes))
-    band_height = image.height * TAB_BAR_HEIGHT_FRACTION
+    min_band = image.height * TAB_BAR_MIN_FRACTION
+    max_band = image.height * TAB_BAR_HEIGHT_FRACTION
     data = pytesseract.image_to_data(image, output_type=Output.DICT)
 
     words = []
     for i, text in enumerate(data["text"]):
         if not text.strip() or int(data["conf"][i]) < MIN_CONFIDENCE:
             continue
-        if data["top"][i] > band_height:
+        if not (min_band <= data["top"][i] <= max_band):
             continue
         words.append((text, data["left"][i], data["top"][i], data["width"][i]))
 
     labels = _cluster_words_by_gap(words)
-    return [
-        label
-        for label in labels
-        if not _CLOCK_RE.match(label.text)
-        and "product ranking" not in label.text.lower()
-    ]
+    return [label for label in labels if _looks_like_a_real_tab(label.text)]
+
+
+def _looks_like_a_real_tab(text: str) -> bool:
+    """Filters out status-bar leftovers and decorative icons that slip
+    into the tab band: clock times, the page's own "Product ranking"
+    title (which can appear split into separate words), and anything
+    with no real letters in it (icon glyphs OCR sometimes misreads as
+    "(98)" or "©)")."""
+    if _CLOCK_RE.match(text):
+        return False
+    if not _HAS_REAL_WORD_RE.search(text):
+        return False
+    words = {w.strip(".,()").lower() for w in text.split()}
+    if words <= _TITLE_WORDS:  # every word in this cluster is "product" and/or "ranking"
+        return False
+    return True
 
 
 def _cluster_words_by_gap(words: list[tuple]) -> list[TappableLabel]:

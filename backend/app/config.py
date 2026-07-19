@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./tiktok_engine.db"
     sql_echo: bool = False
 
-    hermes_api_url: str = "http://localhost:8080"  
+    hermes_api_url: str = "http://localhost:8080"  # TODO: point at your Hermes Agent instance
     hermes_api_key: str = ""
     nvidia_api_key: str = ""
     
