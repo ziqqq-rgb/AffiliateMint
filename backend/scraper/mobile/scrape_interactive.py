@@ -23,7 +23,8 @@ from scraper.filters import apply_filters
 from scraper.mobile import navigate
 from scraper.mobile.categories import discover_sub_categories, discover_top_tabs
 from scraper.mobile.driver import app_session, human_delay
-from scraper.mobile.ocr import extract_products, screenshot_to_lines, to_scraped_product_shape
+from scraper.mobile.ocr import screenshot_to_lines
+from scraper.mobile.vlm_extract import extract_products_vlm, to_scraped_product_shape
 from scraper.mobile.telegram_notify import (
     GO_BACK,
     NEXT_PAGE,
@@ -42,6 +43,19 @@ PAGE_SIZE = 5
 # word) - comparing NORMALIZED text with a fuzzy threshold survives
 # that jitter; exact string equality does not.
 FUZZY_MATCH_THRESHOLD = 0.75
+
+def _ask_operator_to_repick(driver, original_choice: str):
+    """OCR couldn't re-find `original_choice` after two passes. Rather than
+    crashing the whole run, show whatever IS visible right now and let a
+    human pick - cheaper than losing the entire scrape."""
+    lines = screenshot_to_lines(driver.get_screenshot_as_png())
+    visible = discover_sub_categories(lines)
+    if not visible:
+        raise RuntimeError(f"Nothing visible on screen to re-pick {original_choice!r} from.")
+
+    logger.warning("Could not re-find %r automatically - asking operator.", original_choice)
+    choice = wait_for_one_page([l.text for l in visible], allow_next=False, allow_back=False)
+    return next(l for l in visible if l.text == choice)
 
 
 def scrape_interactive(max_scroll_attempts: int = 10) -> list[dict]:
@@ -80,27 +94,20 @@ def scrape_interactive(max_scroll_attempts: int = 10) -> list[dict]:
 
         target = _find_by_scrolling(driver, chosen_subcat, verify_attempts=3)
         if target is None:
-            # Fast path missed (scroll distance isn't perfectly
-            # reproducible) - fall back to a full fuzzy re-scan before
-            # giving up for real.
             _scroll_to_top(driver, max_scroll_attempts)
             target = _find_by_scrolling(driver, chosen_subcat, verify_attempts=max_scroll_attempts)
 
         if target is None:
-            raise RuntimeError(
-                f"Could not re-find {chosen_subcat!r} while scrolling back down. "
-                "Try lowering FUZZY_MATCH_THRESHOLD in this file if the category "
-                "name is being read noticeably differently between passes."
-            )
+            target = _ask_operator_to_repick(driver, chosen_subcat)  # last resort: human picks, doesn't crash
+
         navigate.tap_label(driver, target)
         human_delay()
 
         # --- scrape the resulting product list screen ---
         png_bytes = driver.get_screenshot_as_png()
 
-    lines = screenshot_to_lines(png_bytes)
-    ocr_products = extract_products(lines, category=chosen_subcat)
-    products = [to_scraped_product_shape(p) for p in ocr_products]
+    vlm_products = extract_products_vlm(png_bytes)
+    products = [to_scraped_product_shape(p) for p in vlm_products]
 
     # Mobile OCR never has stock_volume, and review_score isn't shown
     # on every screen - don't require either or every result gets

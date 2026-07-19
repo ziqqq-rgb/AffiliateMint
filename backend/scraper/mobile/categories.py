@@ -31,7 +31,7 @@ from pytesseract import Output
 
 from scraper.mobile.ocr import MIN_CONFIDENCE, OcrLine
 
-NEW_PRODUCTS_RE = re.compile(r"\d+\s*new products?", re.IGNORECASE)
+NEW_PRODUCTS_RE = re.compile(r"new\s*products?", re.IGNORECASE)
 _CLOCK_RE = re.compile(r"^\d{1,2}:\d{2}")
 _HAS_REAL_WORD_RE = re.compile(r"[A-Za-z]{2,}")
 _TITLE_WORDS = {"product", "ranking"}

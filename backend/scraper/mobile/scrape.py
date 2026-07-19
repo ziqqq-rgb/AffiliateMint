@@ -15,7 +15,7 @@ import logging
 
 from scraper.filters import apply_filters
 from scraper.mobile.driver import app_session, human_delay
-from scraper.mobile.ocr import extract_products, screenshot_to_lines, to_scraped_product_shape
+from scraper.mobile.vlm_extract import extract_products_vlm, to_scraped_product_shape
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,8 @@ def scrape_products(category: str = "current screen") -> list[dict]:
 
         png_bytes = driver.get_screenshot_as_png()
 
-    lines = screenshot_to_lines(png_bytes)
-    ocr_products = extract_products(lines)
-
-    products = [to_scraped_product_shape(p) for p in ocr_products]
+    vlm_products = extract_products_vlm(png_bytes)
+    products = [to_scraped_product_shape(p) for p in vlm_products]
     shortlist = apply_filters(products, require_stock=False, require_rating=False)
 
     if not shortlist:
