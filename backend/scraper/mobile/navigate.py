@@ -36,3 +36,9 @@ def scroll_up(driver, screen_fraction: float = 0.6) -> None:
     end_y = int(size["height"] * 0.75)
     driver.swipe(x, start_y, x, end_y, duration=400)
     time.sleep(1.0)
+
+def tap_xy(driver, x: int, y: int) -> None:
+    """Taps raw pixel coordinates - used when the tap target came from
+    the VLM agent (a plain {"x":.., "y":..} dict) rather than OCR's
+    TappableLabel."""
+    driver.tap([(x, y)])
