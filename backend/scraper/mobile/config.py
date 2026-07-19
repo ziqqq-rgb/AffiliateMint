@@ -33,5 +33,7 @@ class MobileScraperConfig:
     min_delay_seconds: float = 2.0
     max_delay_seconds: float = 6.0
 
+    min_commission_pct: float = 15.0
+
 
 config = MobileScraperConfig()

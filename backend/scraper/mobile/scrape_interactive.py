@@ -40,19 +40,6 @@ logger = logging.getLogger(__name__)
 PAGE_SIZE = 5
 
 
-def _ask_operator_to_repick(driver, original_choice: str):
-    """VLM couldn't re-find `original_choice` after two passes. Rather
-    than crashing the whole run, show whatever IS visible right now and
-    let a human pick - cheaper than losing the entire scrape."""
-    visible = discover_sub_categories_vlm(driver.get_screenshot_as_png())
-    if not visible:
-        raise RuntimeError(f"Nothing visible on screen to re-pick {original_choice!r} from.")
-
-    logger.warning("Could not re-find %r automatically - asking operator.", original_choice)
-    names = [label["text"] for label in visible]
-    choice = wait_for_one_page(names, allow_next=False, allow_back=False)
-    return next(label for label in visible if label["text"] == choice)
-
 
 def scrape_interactive(max_scroll_attempts: int = 10) -> list[dict]:
     with app_session() as driver:
@@ -65,9 +52,9 @@ def scrape_interactive(max_scroll_attempts: int = 10) -> list[dict]:
             raise RuntimeError("No category tabs found - is this really the Product Ranking screen?")
         tab_names = [t["text"] for t in tabs]
 
-        chosen_subcat = None
+        chosen_label = None
         chosen_step = 0
-        while chosen_subcat is None:
+        while chosen_label is None:
             logger.info("Sending %d top-level categories to Telegram.", len(tabs))
             chosen_tab_name = wait_for_paginated_choice(tab_names, allow_back=False)
             chosen_tab = next(t for t in tabs if t["text"] == chosen_tab_name)
@@ -79,55 +66,44 @@ def scrape_interactive(max_scroll_attempts: int = 10) -> list[dict]:
                 _scroll_to_top(driver, max_scroll_attempts)
                 continue
 
-            chosen_subcat, chosen_step = choice, step
+            chosen_label, chosen_step = choice, step
 
-        # Go back to exactly where we found it (fast path), then do a
-        # short verification scroll to confirm the tap target still
-        # matches - don't blindly re-scan the whole list from zero.
+        # Go back to exactly where we found it, then tap the EXACT
+        # coordinates recorded at discovery time. We deliberately don't
+        # re-search by heading text here: the heading isn't the tappable
+        # thing, the "N new products" link next to it is - and we
+        # already have its real coordinates, so searching again just
+        # risks matching the wrong nearby element.
         _scroll_to_top(driver, max_scroll_attempts)
         for _ in range(chosen_step):
             navigate.scroll_down(driver)
             human_delay()
 
-        target = _find_by_scrolling(driver, chosen_subcat, verify_attempts=3)
-        if target is None:
-            _scroll_to_top(driver, max_scroll_attempts)
-            target = _find_by_scrolling(driver, chosen_subcat, verify_attempts=max_scroll_attempts)
-
-        if target is None:
-            target = _ask_operator_to_repick(driver, chosen_subcat)  # last resort: human picks, doesn't crash
-
-        navigate.tap_xy(driver, target["x"], target["y"])
+        navigate.tap_xy(driver, chosen_label["x"], chosen_label["y"])
         human_delay()
 
-        # --- scrape the resulting product list screen ---
         png_bytes = driver.get_screenshot_as_png()
 
     vlm_products = extract_products_vlm(png_bytes)
     products = [to_scraped_product_shape(p) for p in vlm_products]
 
-    # Mobile scrapes never have stock_volume, and review_score isn't
-    # shown on every screen - don't require either or every result
-    # gets filtered out (see scraper/mobile/README.md known limitations).
     shortlist = apply_filters(products, require_stock=False, require_rating=False)
     if not shortlist:
         logger.warning(
             "Interactive scrape for %r returned 0 products passing filters (%d read off screen).",
-            chosen_subcat,
+            chosen_label["text"],
             len(products),
         )
     return shortlist
 
 
 def _pick_subcategory(driver, max_scroll_attempts: int):
-    """Scrolls just enough to reveal one page (5) of sub-categories,
-    sends that to Telegram immediately, and only scrolls FURTHER if you
-    reply 'next' - avoids scrolling through the whole list before
-    sending anything.
-
-    Returns (chosen_text, step_found_at), or (GO_BACK, None).
-    """
-    found: dict = {}  # text -> (label_dict, step)
+    """Returns (chosen_label, step_found_at), or (GO_BACK, None).
+    chosen_label is the full {"text", "x", "y"} dict recorded at
+    discovery time - .text is for display, .x/.y is the exact tap
+    target (the "N new products" link, not the heading above it)."""
+    found: dict = {}   # dedup_key -> (label_dict, step)
+    order: list = []
     shown = 0
     step = 0
     consecutive_empty_scrolls = 0
@@ -138,13 +114,16 @@ def _pick_subcategory(driver, max_scroll_attempts: int):
             before = len(found)
             labels = discover_sub_categories_vlm(driver.get_screenshot_as_png())
             for label in labels:
-                found.setdefault(label["text"], (label, step))
+                key = (label["text"], round(label["y"] / 50))
+                if key not in found:
+                    found[key] = (label, step)
+                    order.append(key)
 
             if len(found) == before:
                 consecutive_empty_scrolls += 1
                 if consecutive_empty_scrolls >= 2:
                     reached_bottom = True
-                    break  # 2 scrolls with nothing new = we've hit the bottom, stop early
+                    break
             else:
                 consecutive_empty_scrolls = 0
 
@@ -154,35 +133,25 @@ def _pick_subcategory(driver, max_scroll_attempts: int):
         else:
             reached_bottom = step >= max_scroll_attempts
 
-        names = list(found.keys())
-        if not names:
-            return GO_BACK, None  # nothing found at all under this category
-
-        page = names[shown : shown + PAGE_SIZE]
-        has_more = len(names) > shown + PAGE_SIZE or not reached_bottom
-        logger.info("Sending sub-category page (%d found so far) to Telegram.", len(names))
-        choice = wait_for_one_page(page, allow_next=has_more, allow_back=True)
-
-        if choice is GO_BACK:
+        if not order:
             return GO_BACK, None
-        if choice is NEXT_PAGE:
-            shown += len(page)
+
+        page_keys = order[shown : shown + PAGE_SIZE]
+        page_names = [found[k][0]["text"] for k in page_keys]
+        has_more = len(order) > shown + PAGE_SIZE or not reached_bottom
+        logger.info("Sending sub-category page (%d found so far) to Telegram.", len(order))
+        choice_name = wait_for_one_page(page_names, allow_next=has_more, allow_back=True)
+
+        if choice_name is GO_BACK:
+            return GO_BACK, None
+        if choice_name is NEXT_PAGE:
+            shown += len(page_keys)
             continue
-        return choice, found[choice][1]
 
+        chosen_key = page_keys[page_names.index(choice_name)]
+        chosen_label, chosen_step = found[chosen_key]
+        return chosen_label, chosen_step
 
-def _find_by_scrolling(driver, target_text: str, verify_attempts: int) -> dict | None:
-    """Scrolls down up to `verify_attempts` times asking the VLM if
-    `target_text` is on screen yet. The model handles minor wording
-    drift itself (see find_label_vlm's prompt), so no fuzzy-matching
-    code is needed here."""
-    for _ in range(verify_attempts):
-        found = find_label_vlm(driver.get_screenshot_as_png(), target_text)
-        if found is not None:
-            return found
-        navigate.scroll_down(driver)
-        human_delay()
-    return None
 
 
 def _scroll_to_top(driver, max_scroll_attempts: int) -> None:

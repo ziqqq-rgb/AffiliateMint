@@ -27,7 +27,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-MODEL = "minimaxai/minimax-m3"
+MODEL = "nvidia/nemotron-nano-12b-v2-vl"
 REQUEST_TIMEOUT = httpx.Timeout(connect=10.0, read=150.0, write=10.0, pool=10.0)
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 3.0
@@ -48,12 +48,15 @@ No prose, no markdown fences.
 
 SUB_CATEGORIES_PROMPT = """\
 This is a screenshot of a TikTok Shop category screen, {width}x{height}px. \
-Find every tappable section that has a "N new products" (or similar) link \
-next to it (e.g. "Instant Hijab", "Nail Care"). The tap target is the link \
-itself, not the heading text.
+Find every section on this screen. Each section has a bold heading (e.g. \
+"Candy", "Dried Foods") followed by a small link like "2 new products >".
+
+Return the HEADING text, not the link text - "Candy", never "2 new products".
+The tap coordinates should be the link's position (the "N new products" text), \
+not the heading's position.
 
 Return ONLY a JSON array like:
-[{{"text": "Instant Hijab", "x": 180, "y": 512}}]
+[{{"text": "Candy", "x": 180, "y": 512}}]
 No prose, no markdown fences.
 """
 
@@ -156,6 +159,7 @@ def _call_vlm(png_bytes: bytes, prompt: str):
                     ],
                     "max_tokens": 1500,
                     "temperature": 0.0,
+                    "chat_template_kwargs": {"thinking": False},  # NEW: we just want the JSON, not a reasoning trace
                 },
                 timeout=REQUEST_TIMEOUT,
             )
@@ -172,9 +176,11 @@ def _call_vlm(png_bytes: bytes, prompt: str):
     raise RuntimeError(f"VLM agent call failed after {MAX_RETRIES} attempts") from last_error
 
 
-def _parse_json(raw_text: str):
+def _parse_json(raw_text: str | None):
     """Models sometimes wrap JSON in ```json fences despite instructions
     not to - strip those before parsing rather than failing on them."""
+    if not raw_text:
+        raise RuntimeError("VLM returned empty content (likely ran out of tokens on reasoning - check chat_template_kwargs/max_tokens)")
     cleaned = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         return json.loads(cleaned)

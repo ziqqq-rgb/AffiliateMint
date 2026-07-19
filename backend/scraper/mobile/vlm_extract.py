@@ -27,7 +27,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-MODEL = "minimaxai/minimax-m3"
+MODEL = "nvidia/nemotron-nano-12b-v2-vl"
 
 # httpx.Timeout lets us split this out: connecting to NVIDIA is fast,
 # but a 90B vision model actually GENERATING the response can take a
@@ -93,7 +93,7 @@ def extract_products_vlm(png_bytes: bytes) -> list[dict]:
                         }
                     ],
                     "max_tokens": MAX_OUTPUT_TOKENS,
-                    "temperature": 0.0,  # deterministic extraction, not creative writing
+                    "temperature": 0.0,
                 },
                 timeout=REQUEST_TIMEOUT,
             )
@@ -103,7 +103,8 @@ def extract_products_vlm(png_bytes: bytes) -> list[dict]:
 
         except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             last_error = exc
-            logger.warning("VLM extraction call failed (attempt %d/%d): %s", attempt, MAX_RETRIES, exc)
+            body = exc.response.text if isinstance(exc, httpx.HTTPStatusError) else ""
+            logger.warning("VLM extraction call failed (attempt %d/%d): %s | %s", attempt, MAX_RETRIES, exc, body)
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_BACKOFF_SECONDS)
 
@@ -130,9 +131,11 @@ def _resize_for_upload(png_bytes: bytes) -> bytes:
     return buffer.getvalue()
 
 
-def _parse_json_array(raw_text: str) -> list[dict]:
+def _parse_json_array(raw_text: str | None) -> list[dict]:
     """Models sometimes wrap JSON in ```json fences despite instructions
     not to - strip those before parsing rather than failing on them."""
+    if not raw_text:
+        raise RuntimeError("VLM returned empty content - check the raw API response for finish_reason")
     cleaned = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         return json.loads(cleaned)
