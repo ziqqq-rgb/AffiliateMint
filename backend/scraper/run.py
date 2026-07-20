@@ -1,403 +1,198 @@
 """
 backend/scraper/run.py
-Step 4: Main Execution Engine for AffiliateMint Scraper.
-Orchestrates the StealthBrowser, SessionManager, and NetworkInterceptor into a unified pipeline.
-"""
-import os
-import time
-from backend.scraper.browser import StealthBrowser
-from backend.scraper.capture_session import SessionManager
-from backend.scraper.intercept import NetworkInterceptor
-
-class AffiliateScraperEngine:
-    def __init__(self, headless: bool = False, incognito: bool = True):
-        """Initializes the core modules of our scraping stack."""
-        self.browser = StealthBrowser(headless=headless, incognito=incognito)
-        self.session_mgr = SessionManager(self.browser)
-        self.interceptor = NetworkInterceptor(self.browser)
-        self.is_running = False
-
-    def start(self):
-        """Launches the CDP browser and fires up the network wiretap."""
-        if not self.is_running:
-            self.browser.start()
-            self.interceptor.start_intercepting()
-            self.is_running = True
-
-    def run_pipeline(
-        self, 
-        target_url: str, 
-        domain_origin: str = None, 
-        session_file: str = None, 
-        filter_keywords: list = None
-    ) -> dict:
-        """
-        Executes an end-to-end affiliate scraping job:
-        1. Launches browser & starts background network wiretap.
-        2. Loads cookies (if provided) to bypass authentication/login walls.
-        3. Navigates to target URL and lets SPAs/dynamic data hydrate.
-        4. Harvests visible metadata AND intercepted background JSON/API data.
-        """
-        try:
-            self.start()
-
-            # Step A: Configure wiretap keyword filters
-            if filter_keywords:
-                self.interceptor.set_filter_keywords(filter_keywords)
-            else:
-                # Default keywords relevant to affiliate tracking and campaign metrics
-                self.interceptor.set_filter_keywords(["json", "api", "token", "campaign", "affiliate", "stats"])
-
-            # Step B: Authenticate via saved session file (if provided and exists)
-            if session_file and os.path.exists(session_file):
-                if not domain_origin:
-                    # Automatically extract the base domain URL (e.g., https://example.com)
-                    domain_origin = "/".join(target_url.split("/")[:3])
-                print(f"\n[+] Authenticating via saved session for origin: {domain_origin}")
-                self.session_mgr.load_session(domain_url=domain_origin, filepath=session_file)
-            elif session_file:
-                print(f"\n[!] Notice: Session file '{session_file}' not found. Proceeding as unauthenticated guest...")
-
-            # Step C: Clear old network logs and navigate to target campaign/dashboard
-            self.interceptor.clear_log()
-            print(f"\n[+] Executing target scrape -> {target_url}")
-            self.browser.get(target_url)
-
-            # Give initial SPA framework time to hydrate
-            self.browser.driver.sleep(3.0)
-
-            # =================================================================
-            # NEW: Trigger Infinite Scroll to force background API payloads
-            # =================================================================
-            # Adjust max_scrolls depending on how many hundreds of products you want.
-            # On TikTok Shop, each scroll pass typically fetches 20 to 30 products.
-            self.browser.scroll_infinite(max_scrolls=12, base_pause=2.5)
-
-            # Step D: Gather visible DOM metadata
-            page_title = self.browser.driver.get_title()
-            current_url = self.browser.driver.get_current_url()
-            
-            # Step E: Gather intercepted background network traffic
-            network_data = self.interceptor.get_captured_data()
-
-            # Structure the final data payload
-            result_payload = {
-                "success": True,
-                "metadata": {
-                    "title": page_title,
-                    "url": current_url,
-                    "timestamp": time.time()
-                },
-                "network_data": {
-                    "total_requests": network_data["total_requests"],
-                    "total_responses": network_data["total_responses"],
-                    "captured_responses": network_data["responses"]
-                }
-            }
-
-            print(f"[SUCCESS] Scrape completed cleanly for: '{page_title}'")
-            return result_payload
-
-        except Exception as e:
-            print(f"\n[ERROR] Scraper pipeline encountered an error: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-
-    def close(self):
-        """Safely terminates all browser processes and cleans up."""
-        if self.is_running:
-            print("\n[+] Shutting down AffiliateScraper engine...")
-            self.browser.stop()
-            self.is_running = False
-
-"""
-backend/scraper/run.py
-Main Execution Engine for AffiliateMint Scraper with SSR Extraction & Infinite Scroll.
+HYBRID STEALTH SCRAPER (Fixed CAPTCHA Detector + Dual DOM & Wiretap Harvester)
 """
 import os
 import time
 import json
-from backend.scraper.browser import StealthBrowser
-from backend.scraper.capture_session import SessionManager
-from backend.scraper.intercept import NetworkInterceptor
+from seleniumbase import Driver
+from playwright.sync_api import sync_playwright
 
 
-# =====================================================================
-# HELPER PARSERS & EXTRACTORS
-# =====================================================================
-def parse_tiktok_shop_item(item: dict) -> dict:
-    """Maps raw TikTok product payload into clean ScrapedProduct schema."""
-    price_info = item.get("product_price_info", {})
-    rate_info = item.get("rate_info", {})
-    sold_info = item.get("sold_info", {})
-    seller_info = item.get("seller_info", {})
-    seo_url = item.get("seo_url", {})
-    image_data = item.get("image", {})
+def run_hybrid_scraper(target_url: str):
+    print("--- Starting Fixed Hybrid Stealth Scraper ---")
     
-    url_list = image_data.get("url_list", [])
-    first_image = url_list[0] if url_list else None
-
-    return {
-        "product_id": item.get("product_id"),
-        "title": item.get("title"),
-        "price_rm": float(price_info.get("sale_price_decimal", 0.0)) if price_info.get("sale_price_decimal") else 0.0,
-        "original_price_rm": float(price_info.get("origin_price_decimal", 0.0)) if price_info.get("origin_price_decimal") else None,
-        "review_score": float(rate_info.get("score", 0.0)) if rate_info.get("score") else None,
-        "review_count": int(rate_info.get("review_count", 0)) if rate_info.get("review_count") else 0,
-        "units_sold": sold_info.get("sold_count"),
-        "shop_name": seller_info.get("shop_name"),
-        "product_url": seo_url.get("canonical_url"),
-        "image_url": first_image,
-        "raw_payload": json.dumps(item)
-    }
-
-
-def extract_tiktok_ssr_catalog(driver) -> list:
-    """Extracts initial SSR product catalog directly from script tags."""
-    print("[+] Hunting across all script tags for SSR JSON payloads...")
+    # 1. SELENIUMBASE DEFENSE: Launch UC Mode
+    print("[+] Launching SeleniumBase UC Mode to bypass anti-bot defenses...")
+    driver = Driver(uc=True, incognito=True, headless=False)
     
-    # Notice the 'r' right before the triple quotes below! This fixes the SyntaxWarning.
-    js_query = r"""
-    (() => {
-        const scripts = document.querySelectorAll('script');
-        const validPayloads = [];
-        for (const s of scripts) {
-            if (!s.textContent || s.textContent.length < 100) continue;
-            try {
-                validPayloads.push(JSON.parse(s.textContent));
-            } catch (e) {
-                const match = s.textContent.match(/(\{.*?\});?\s*$/s);
-                if (match) {
-                    try { validPayloads.push(JSON.parse(match[1])); } catch (err) {}
-                }
-            }
+    harvested_items = []
+    seen_titles = set()
+
+    def add_product(title: str, price: str, url: str = "", img: str = "", source: str = "DOM"):
+        if not title or title in seen_titles or len(title.strip()) < 3:
+            return
+        clean_title = title.strip()
+        seen_titles.add(clean_title)
+        item = {
+            "title": clean_title,
+            "price_rm": price,
+            "product_url": url,
+            "image_url": img,
+            "source": source
         }
-        return validPayloads;
-    })();
-    """
-    
-    all_json_objects = driver.evaluate(js_query)
-    if not all_json_objects:
-        print("[!] No parsable JSON blobs found in script tags.")
-        return []
+        harvested_items.append(item)
+        print(f"  [{source} HARVEST #{len(harvested_items)}] -> {clean_title[:45]}... | RM {price}")
 
-    print(f"[+] Found {len(all_json_objects)} JSON blobs. Hunting for product items...")
-    
-    extracted_products = []
-    
-    def find_products_recursive(obj):
-        if isinstance(obj, dict):
-            # Target check: must contain product_id and price info
-            if "product_id" in obj and "product_price_info" in obj:
-                extracted_products.append(obj)
-            else:
-                for key, value in obj.items():
-                    find_products_recursive(value)
-        elif isinstance(obj, list):
-            for item in obj:
-                find_products_recursive(item)
-
-    for blob in all_json_objects:
-        find_products_recursive(blob)
-        
-    print(f"[SUCCESS] Harvested {len(extracted_products)} SSR products directly from HTML!")
-    return extracted_products
-
-
-# =====================================================================
-# MAIN SCRAPER ENGINE
-# =====================================================================
-class AffiliateScraperEngine:
-    def __init__(self, headless: bool = False, incognito: bool = True):
-        self.browser = StealthBrowser(headless=headless, incognito=incognito)
-        self.session_mgr = SessionManager(self.browser)
-        self.interceptor = NetworkInterceptor(self.browser)
-        self.is_running = False
-
-    def start(self):
-        if not self.is_running:
-            self.browser.start()
-            self.interceptor.start_intercepting()
-            self.is_running = True
-
-    def run_pipeline(
-        self, 
-        target_url: str, 
-        domain_origin: str = None, 
-        session_file: str = None, 
-        filter_keywords: list = None
-    ) -> dict:
-        try:
-            self.start()
-
-            # Step A: Configure wiretap keyword filters
-            if filter_keywords:
-                self.interceptor.set_filter_keywords(filter_keywords)
-            else:
-                self.interceptor.set_filter_keywords(["/oec/", "showcase", "goods", "commodity", "search", "card_list", "product", "/api/v1/shop/"])
-
-            # Step B: Authenticate via saved session file (if provided)
-            if session_file and os.path.exists(session_file):
-                if not domain_origin:
-                    domain_origin = "/".join(target_url.split("/")[:3])
-                print(f"\n[+] Authenticating via saved session for origin: {domain_origin}")
-                self.session_mgr.load_session(domain_url=domain_origin, filepath=session_file)
-
-            # Step C: Clear logs and execute navigation + harvest
-            self.interceptor.clear_log()
-            print(f"\n[+] Executing target scrape -> {target_url}")
-            
-            # =================================================================
-            # EXACT PLACEMENT: NAVIGATION + SSR HARVEST + INFINITE SCROLL
-            # =================================================================
-            self.browser.get(target_url)
-            self.browser.driver.sleep(3.0)
-
-            # PHASE 1: Harvest initial HTML SSR products from script tag
-            ssr_raw_items = extract_tiktok_ssr_catalog(self.browser.driver)
-            clean_ssr_products = [parse_tiktok_shop_item(item) for item in ssr_raw_items]
-            
-            print("\n--- Initial SSR Harvested Products ---")
-            for p in clean_ssr_products:
-                print(f"  [SSR] -> {p.get('title')[:45]}... | RM {p.get('price_rm')}")
-            print("--------------------------------------\n")
-
-            # =================================================================
-            # NEW: DESTROY MODAL OVERLAYS & UNLOCK SCROLLING
-            # =================================================================
-            print("[+] Clearing potential login/cookie modal overlays...")
-            unlock_js = """
-            (() => {
-                // Force body to allow scrolling if a modal locked it
-                document.body.style.overflow = 'auto';
-                document.documentElement.style.overflow = 'auto';
-                
-                // Remove common backdrop overlays and cookie banners
-                const selectors = [
-                    '[class*="modal"]', '[class*="Dialog"]', '[class*="overlay"]', 
-                    '[class*="cookie"]', '[class*="banner"]', '#secsdk-captcha-drag-wrapper'
-                ];
-                selectors.forEach(sel => {
-                    document.querySelectorAll(sel).forEach(el => {
-                        if (el && el.style) el.style.display = 'none';
-                    });
-                });
-            })();
-            """
-            self.browser.driver.evaluate(unlock_js)
-            self.browser.driver.sleep(1.0)
-            
-            # PHASE 2: Trigger Infinite Scroll to catch background API traffic
-            self.browser.scroll_infinite(max_scrolls=5, base_pause=2.5)
-            # =================================================================
-
-            # Step D: Gather metadata and intercepted API payloads
-            page_title = self.browser.driver.get_title()
-            current_url = self.browser.driver.get_current_url()
-            network_data = self.interceptor.get_captured_data()
-
-            return {
-                "success": True,
-                "metadata": {
-                    "title": page_title,
-                    "url": current_url,
-                    "timestamp": time.time()
-                },
-                "ssr_products": clean_ssr_products,
-                "network_data": {
-                    "total_requests": network_data["total_requests"],
-                    "total_responses": network_data["total_responses"],
-                    "captured_responses": network_data["responses"]
-                }
-            }
-
-        except Exception as e:
-            print(f"\n[ERROR] Scraper pipeline encountered an error: {str(e)}")
-            return {"success": False, "error": str(e)}
-
-    def close(self):
-        if self.is_running:
-            print("\n[+] Shutting down AffiliateScraper engine...")
-            self.browser.stop()
-            self.is_running = False
-
-
-# =====================================================================
-# TEST RUNNER WITH DEEP CONTAINER SCROLL & INSPECTOR
-# =====================================================================
-if __name__ == "__main__":
-    print("--- Starting TikTok Shop Infinite Scroll & Wiretap Harvest Test ---")
-    
-    engine = AffiliateScraperEngine(headless=False)
-    target_shop_url = "https://shop.tiktok.com/my"
-    
     try:
-        results = engine.run_pipeline(target_url=target_shop_url)
-        
-        print("\n--- Final Test Summary ---")
-        print(f"Status:        {'SUCCESS' if results.get('success') else 'FAILED'}")
-        print(f"SSR Products:  {len(results.get('ssr_products', []))} items extracted directly from HTML!")
-        print(f"API Calls:     {results['network_data']['total_responses']} matching API payloads intercepted!")
-        
-        # =================================================================
-        # PRINTING ACTUAL PRODUCT TITLES & PRICES FROM WIRETAP PAYLOADS
-        # =================================================================
-        print("\n--- Intercepted Wiretap Products ---")
-        harvested_items = []
-        
-        def hunt_and_print_items(obj):
-            """Recursively searches for TikTok products using flexible key matching."""
-            if isinstance(obj, dict):
-                # Check if this object looks like a product (has price info or a title/name)
-                has_price = any(k in obj for k in ["product_price_info", "price", "sale_price", "price_info", "discount_price", "sale_price_decimal"])
-                has_title = any(k in obj for k in ["title", "product_name", "name"]) and len(str(obj.get("title", ""))) > 5
-                
-                if has_price and has_title:
-                    title = obj.get("title") or obj.get("product_name") or obj.get("name")
-                    
-                    # Dig out price regardless of how deeply TikTok nested it
-                    price = "0.00"
-                    if isinstance(obj.get("product_price_info"), dict):
-                        price = obj["product_price_info"].get("sale_price_decimal") or obj["product_price_info"].get("origin_price_decimal", "0.00")
-                    elif isinstance(obj.get("price_info"), dict):
-                        price = obj["price_info"].get("sale_price") or obj["price_info"].get("price", "0.00")
-                    elif obj.get("sale_price"):
-                        price = str(obj.get("sale_price"))
-                    elif obj.get("price"):
-                        price = str(obj.get("price"))
-                        
-                    harvested_items.append((title, price))
-                    print(f"  [API Harvest #{len(harvested_items)}] -> {str(title)[:50]}... | RM {price}")
-                else:
-                    for key, value in obj.items():
-                        hunt_and_print_items(value)
-            elif isinstance(obj, list):
-                for item in obj:
-                    hunt_and_print_items(item)
+        print(f"[+] Navigating to target -> {target_url}")
+        driver.get(target_url)
+        time.sleep(3)
 
-        # Loop through every background API call our wiretap caught
-        for res in results["network_data"]["captured_responses"]:
-            payload = res.get("payload")
-            if payload:
-                hunt_and_print_items(payload)
-                
-        if len(harvested_items) == 0:
-            print("  [!] No product items matched our filter. Dumping top-level keys of caught API payloads:")
-            for idx, res in enumerate(results["network_data"]["captured_responses"], 1):
-                payload = res.get("payload")
-                if isinstance(payload, dict):
-                    print(f"    Sample #{idx} ({res['url'][:60]}...): Keys -> {list(payload.keys())}")
-                elif payload:
-                    print(f"    Sample #{idx} ({res['url'][:60]}...): Type -> {type(payload)}")
+        # =================================================================
+        # FIX 1: SMART VISIBLE CAPTCHA DETECTOR (No more false positives!)
+        # =================================================================
+        print("[+] Checking for active visible CAPTCHA...")
+        is_captcha_visible = driver.execute_script("""
+            (() => {
+                const modal = document.querySelector('#secsdk-captcha-drag-wrapper, .captcha_verify_container, [id*="captcha-drag"]');
+                if (modal && modal.offsetWidth > 0 && modal.offsetHeight > 0) return true;
+                const bodyText = document.body ? document.body.textContent : "";
+                return bodyText.includes("Verify to continue") || bodyText.includes("Slide to verify");
+            })();
+        """)
+
+        if is_captcha_visible:
+            print("  [!] Active CAPTCHA detected on screen! Waiting 15s for manual solve...")
+            time.sleep(15)
         else:
-            print(f"\n[SUCCESS] Extracted {len(harvested_items)} total products from background API wiretap!")
-        print("------------------------------------\n")
-        
+            print("  [SUCCESS] No active CAPTCHA blocking screen!")
+
+        # 2. CONNECT PLAYWRIGHT OVER CDP
+        debugger_address = driver.capabilities["goog:chromeOptions"]["debuggerAddress"]
+        print(f"[+] Connecting Playwright to CDP Endpoint: http://{debugger_address}")
+
+        with sync_playwright() as p:
+            pw_browser = p.chromium.connect_over_cdp(f"http://{debugger_address}")
+            context = pw_browser.contexts[0]
+            page = context.pages[0]
+
+            # --- WIRETAP HANDLER ---
+            def handle_response(response):
+                url = response.url.lower()
+                if any(kw in url for kw in ["/oec/", "showcase", "goods", "commodity", "search", "card_list", "product", "homepage_deskt", "/api/"]):
+                    try:
+                        if "json" in response.headers.get("content-type", ""):
+                            data = response.json()
+                            parse_json_recursive(data)
+                    except Exception:
+                        pass
+
+            def parse_json_recursive(obj):
+                if isinstance(obj, dict):
+                    has_price = any(k in obj for k in ["product_price_info", "price", "sale_price", "price_info", "sale_price_decimal"])
+                    has_title = any(k in obj for k in ["title", "product_name", "name"]) and len(str(obj.get("title", ""))) > 5
+                    if has_price and has_title:
+                        title = obj.get("title") or obj.get("product_name") or obj.get("name")
+                        price = "0.00"
+                        if isinstance(obj.get("product_price_info"), dict):
+                            price = obj["product_price_info"].get("sale_price_decimal") or obj["product_price_info"].get("origin_price_decimal", "0.00")
+                        elif obj.get("sale_price"):
+                            price = str(obj.get("sale_price"))
+                        elif obj.get("price"):
+                            price = str(obj.get("price"))
+                        add_product(title, price, source="WIRETAP")
+                    else:
+                        for v in obj.values():
+                            parse_json_recursive(v)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        parse_json_recursive(item)
+
+            page.on("response", handle_response)
+            print("[+] Playwright network wiretap ACTIVE!")
+
+            # --- DOM SCRAPER HELPER ---
+            def scrape_visible_dom_products():
+                return page.evaluate("""
+                    (() => {
+                        const items = [];
+                        // Select candidate elements containing price/product data
+                        const candidates = document.querySelectorAll('a, div[class*="Card"], div[class*="product"], div[class*="Item"], div[class*="goods"]');
+                        
+                        candidates.forEach(el => {
+                            const text = el.textContent || "";
+                            if (text.includes("RM") && (text.includes("sold") || text.includes("%") || text.includes("Arrivals") || text.includes("Kelabu"))) {
+                                const priceMatch = text.match(/RM\\s*([0-9\\.,]+)/);
+                                
+                                // Find title text inside element
+                                let title = "";
+                                const heading = el.querySelector('h3, h4, span[class*="title"], div[class*="title"], p');
+                                if (heading) {
+                                    title = heading.textContent.trim();
+                                } else {
+                                    const lines = text.split('\\n').map(l => l.trim()).filter(l => l.length > 10 && !l.includes('RM') && !l.includes('sold'));
+                                    if (lines.length > 0) title = lines[0];
+                                }
+
+                                const imgEl = el.querySelector('img');
+                                const linkEl = el.tagName === 'A' ? el : el.querySelector('a');
+
+                                if (title && priceMatch) {
+                                    items.push({
+                                        title: title,
+                                        price: priceMatch[1],
+                                        url: linkEl ? linkEl.href : "",
+                                        img: imgEl ? imgEl.src : ""
+                                    });
+                                }
+                            }
+                        });
+                        return items;
+                    })();
+                """)
+
+            # HARVEST 1: Scrape rendered items on load
+            print("[+] Harvesting products visible on initial screen...")
+            for p_item in scrape_visible_dom_products():
+                add_product(p_item["title"], p_item["price"], p_item["url"], p_item["img"], source="DOM")
+
+            # --- CLICK 'VIEW MORE' ---
+            print("[+] Attempting to click 'View More' button...")
+            try:
+                view_more = page.locator('text=/View more/i').first
+                if view_more.is_visible():
+                    view_more.scroll_into_view_if_needed()
+                    page.wait_for_timeout(1000)
+                    view_more.click(force=True)
+                    print("[SUCCESS] Clicked 'View More' button!")
+                    page.wait_for_timeout(2500)
+                else:
+                    print("[!] 'View More' button not visible directly. Triggering scroll...")
+            except Exception as e:
+                print(f"[!] Could not click 'View More': {e}")
+
+            # --- INFINITE SCROLL & CONTINUOUS HARVEST ---
+            print("[+] Starting smooth mouse-wheel infinite scroll sequence...")
+            for pass_num in range(1, 6):
+                print(f"  -> Scroll pass {pass_num}/5...")
+                page.mouse.wheel(0, 1800)
+                page.wait_for_timeout(2000)
+                
+                # Scrape newly rendered DOM elements after each scroll
+                for p_item in scrape_visible_dom_products():
+                    add_product(p_item["title"], p_item["price"], p_item["url"], p_item["img"], source="DOM")
+
+            pw_browser.close()
+
     except Exception as e:
-        print(f"\n[ERROR] Test Execution Failed: {e}")
+        print(f"\n[ERROR] Hybrid execution failed: {e}")
         
     finally:
-        engine.close()
-        print("--- Test Complete ---")
+        print("\n[+] Closing SeleniumBase defense browser...")
+        driver.quit()
+        
+        print("\n--- Final Scrape Summary ---")
+        if len(harvested_items) > 0:
+            print(f"[SUCCESS] Total products extracted: {len(harvested_items)}")
+            output_file = "tiktok_harvest.json"
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(harvested_items, f, indent=2, ensure_ascii=False)
+            print(f"[SUCCESS] Saved entire catalog to {os.path.abspath(output_file)}!")
+        else:
+            print("[!] No products harvested.")
+        print("--- Scrape Complete ---")
+
+
+if __name__ == "__main__":
+    run_hybrid_scraper("https://shop.tiktok.com/my")

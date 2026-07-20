@@ -8,7 +8,6 @@ import mycdp
 
 class NetworkInterceptor:
     def __init__(self, browser):
-        """Connects the interceptor to an active StealthBrowser instance."""
         self.browser = browser
         self.captured_requests = []
         self.captured_responses = []
@@ -16,19 +15,38 @@ class NetworkInterceptor:
         self.is_intercepting = False
 
     def set_filter_keywords(self, keywords: list):
-        """Sets URL keywords to filter for specific API calls."""
         self.target_keywords = [kw.lower() for kw in keywords] if keywords else []
         print(f"[+] Active network filter keywords: {self.target_keywords}")
 
     def _matches_filter(self, url: str) -> bool:
-        """Checks if a URL matches our target keywords."""
         if not self.target_keywords:
             return True
         url_lower = url.lower()
         return any(kw in url_lower for kw in self.target_keywords)
 
+    def _fetch_cdp_body(self, req_id: str) -> str:
+        """Universal CDP Body Fetcher: Supports Undetected ChromeDriver, SeleniumBase, and standard Selenium."""
+        driver = self.browser.driver
+        params = {"requestId": str(req_id)}
+        
+        # Method 1: Undetected ChromeDriver / UC Mode (This is what your StealthBrowser uses!)
+        if hasattr(driver, "send_command_and_get_result"):
+            res = driver.send_command_and_get_result("Network.getResponseBody", params)
+            return res.get("body", "") if isinstance(res, dict) else str(res)
+            
+        # Method 2: Standard Selenium 4
+        if hasattr(driver, "execute_cdp_cmd"):
+            res = driver.execute_cdp_cmd("Network.getResponseBody", params)
+            return res.get("body", "") if isinstance(res, dict) else str(res)
+            
+        # Method 3: Legacy UC / Selenium send_command
+        if hasattr(driver, "send_command"):
+            res = driver.send_command("Network.getResponseBody", params)
+            return res.get("body", "") if isinstance(res, dict) else str(res)
+
+        raise AttributeError("No valid CDP execution method found on this driver instance.")
+
     async def _on_request_sent(self, event: mycdp.network.RequestWillBeSent):
-        """Internal handler triggered every time Chrome sends a request."""
         req = event.request
         if self._matches_filter(req.url):
             self.captured_requests.append({
@@ -39,30 +57,33 @@ class NetworkInterceptor:
             })
 
     async def _on_response_received(self, event: mycdp.network.ResponseReceived):
-        """Internal handler triggered every time Chrome receives a response."""
         res = event.response
         is_json = "application/json" in str(res.mime_type).lower()
         
-        # Filter out noise domains like monitor or byteoversea telemetry
-        noise_domains = ["monitor", "byteoversea", "mcs", "mssdk", "browser-settings"]
+        noise_domains = [
+            "monitor", "byteoversea", "mcs", "mssdk", "browser-settings", 
+            "api-verification", "libraweb", "web-cookie-privacy", "ttwstatic"
+        ]
         if any(noise in res.url for noise in noise_domains):
             return
 
         if self._matches_filter(res.url) or is_json:
             parsed_payload = None
+            raw_body = ""
+            
             try:
-                # Use event.target.send to reliably fetch the body over the active CDP tab
-                body_obj = await event.target.send(
-                    mycdp.network.get_response_body(event.request_id)
-                )
-                raw_body = body_obj[0] if isinstance(body_obj, tuple) else getattr(body_obj, 'body', str(body_obj))
-                
-                import json
-                parsed_payload = json.loads(raw_body)
-                print(f"[WIRETAP] Successfully captured JSON ({len(raw_body)} bytes) from: {res.url[:60]}...")
+                raw_body = self._fetch_cdp_body(str(event.request_id))
             except Exception as e:
-                # Now we print exact debugging errors if Chrome refuses to release the body!
-                print(f"[WIRETAP NOTICE] Could not read body for {res.url[:50]}: {e}")
+                if res.status == 200:
+                    print(f"[WIRETAP NOTICE] Could not read body for {res.url[:50]}... | Err: {e}")
+
+            if raw_body:
+                try:
+                    import json
+                    parsed_payload = json.loads(raw_body)
+                    print(f"[WIRETAP SUCCESS] Captured JSON ({len(raw_body)} bytes) from: {res.url[:60]}...")
+                except Exception:
+                    pass
 
             self.captured_responses.append({
                 "url": res.url,
@@ -71,9 +92,8 @@ class NetworkInterceptor:
                 "payload": parsed_payload,
                 "timestamp": time.time()
             })
-            
+
     def start_intercepting(self):
-        """Attaches CDP network event handlers to the live browser session."""
         if not self.browser.driver:
             raise Exception("Browser is not running! Start the browser before intercepting traffic.")
         
@@ -84,7 +104,6 @@ class NetworkInterceptor:
         print("[SUCCESS] Network interception is LIVE!")
 
     def get_captured_data(self) -> dict:
-        """Returns all intercepted requests and responses."""
         return {
             "total_requests": len(self.captured_requests),
             "total_responses": len(self.captured_responses),
@@ -93,7 +112,6 @@ class NetworkInterceptor:
         }
 
     def clear_log(self):
-        """Wipes captured arrays clean."""
         self.captured_requests.clear()
         self.captured_responses.clear()
         print("[+] Intercept log cleared.")
