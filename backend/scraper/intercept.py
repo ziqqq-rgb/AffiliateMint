@@ -1,85 +1,99 @@
 """
-Network response interception - the core of FR-1.2: read TikTok Shop's
-internal API responses instead of the rendered page, so front-end
-layout changes don't break the scraper as easily.
-
-We never build or sign the request ourselves - TikTok's own page JS
-does that (see the X-Tts-Oec-Bsid token on a real capture, which is a
-generated anti-bot signature, not something to reverse-engineer). We
-just let Playwright load the real page and listen for the response.
+backend/scraper/intercept.py
+Step 3: Network Interception and Background API Capture using CDP Mode.
+Acts as a browser wiretap to capture hidden JSON API calls and background XHR data.
 """
+import time
+import mycdp
 
-import json
-from typing import Any
+class NetworkInterceptor:
+    def __init__(self, browser):
+        """Connects the interceptor to an active StealthBrowser instance."""
+        self.browser = browser
+        self.captured_requests = []
+        self.captured_responses = []
+        self.target_keywords = []
+        self.is_intercepting = False
 
-from playwright.async_api import Page, Response
+    def set_filter_keywords(self, keywords: list):
+        """Sets URL keywords to filter for specific API calls."""
+        self.target_keywords = [kw.lower() for kw in keywords] if keywords else []
+        print(f"[+] Active network filter keywords: {self.target_keywords}")
 
-from scraper.config import config
+    def _matches_filter(self, url: str) -> bool:
+        """Checks if a URL matches our target keywords."""
+        if not self.target_keywords:
+            return True
+        url_lower = url.lower()
+        return any(kw in url_lower for kw in self.target_keywords)
 
+    async def _on_request_sent(self, event: mycdp.network.RequestWillBeSent):
+        """Internal handler triggered every time Chrome sends a request."""
+        req = event.request
+        if self._matches_filter(req.url):
+            self.captured_requests.append({
+                "url": req.url,
+                "method": req.method,
+                "headers": req.headers,
+                "timestamp": time.time()
+            })
 
-class ResponseCollector:
-    """Collects matching network responses while a page is being driven."""
-
-    def __init__(self) -> None:
-        self.raw_payloads: list[dict[str, Any]] = []
-
-    async def on_response(self, response: Response) -> None:
-        if config.target_endpoint_pattern.strip("*") not in response.url:
+    async def _on_response_received(self, event: mycdp.network.ResponseReceived):
+        """Internal handler triggered every time Chrome receives a response."""
+        res = event.response
+        is_json = "application/json" in str(res.mime_type).lower()
+        
+        # Filter out noise domains like monitor or byteoversea telemetry
+        noise_domains = ["monitor", "byteoversea", "mcs", "mssdk", "browser-settings"]
+        if any(noise in res.url for noise in noise_domains):
             return
-        try:
-            body = await response.json()
-        except Exception:
-            return  # not JSON, or unrelated - ignore, don't crash the whole run
-        self.raw_payloads.append(body)
 
-    def attach(self, page: Page) -> None:
-        page.on("response", self.on_response)
+        if self._matches_filter(res.url) or is_json:
+            parsed_payload = None
+            try:
+                # 1. CRITICAL: Command CDP to fetch the actual response body from memory!
+                body_obj = await self.browser.driver.send(
+                    mycdp.network.get_response_body(event.request_id)
+                )
+                # CDP returns a tuple (body_string, base64_encoded_bool)
+                raw_body = body_obj[0] if isinstance(body_obj, tuple) else getattr(body_obj, 'body', str(body_obj))
+                
+                import json
+                parsed_payload = json.loads(raw_body)
+            except Exception:
+                # Background XHR requests sometimes abort or close before the body is readable
+                pass
 
+            self.captured_responses.append({
+                "url": res.url,
+                "status": res.status,
+                "mime_type": res.mime_type,
+                "payload": parsed_payload,  # <-- Now storing the actual product JSON!
+                "timestamp": time.time()
+            })
 
-def parse_response(raw_payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Turns one raw homepage-feed API response into parsed product dicts.
+    def start_intercepting(self):
+        """Attaches CDP network event handlers to the live browser session."""
+        if not self.browser.driver:
+            raise Exception("Browser is not running! Start the browser before intercepting traffic.")
+        
+        print("[+] Attaching CDP network wiretap handlers...")
+        self.browser.driver.add_handler(mycdp.network.RequestWillBeSent, self._on_request_sent)
+        self.browser.driver.add_handler(mycdp.network.ResponseReceived, self._on_response_received)
+        self.is_intercepting = True
+        print("[SUCCESS] Network interception is LIVE!")
 
-    FR-1.4: the raw payload is kept separately by the caller, so if
-    this parsing logic is wrong or TikTok changes field names, no data
-    is lost - only re-parsing is needed once the fix lands.
-    """
-    items = raw_payload.get("data", {}).get("productList", [])
-    parsed = []
-    for item in items:
-        price_info = item.get("product_price_info", {})
-        rate_info = item.get("rate_info", {})
-        sold_info = item.get("sold_info", {})
-        seller_info = item.get("seller_info", {})
-        seo_url = item.get("seo_url", {})
-        images = item.get("image", {}).get("url_list", [])
+    def get_captured_data(self) -> dict:
+        """Returns all intercepted requests and responses."""
+        return {
+            "total_requests": len(self.captured_requests),
+            "total_responses": len(self.captured_responses),
+            "requests": self.captured_requests,
+            "responses": self.captured_responses
+        }
 
-        parsed.append(
-            {
-                "tiktok_product_id": item.get("product_id", ""),
-                "title": item.get("title", ""),
-                "price_rm": _to_float(price_info.get("sale_price_decimal")),
-                "original_price_rm": _to_float(price_info.get("origin_price_decimal")),
-                "review_score": _to_float(rate_info.get("score")),
-                "review_count": _to_int(rate_info.get("review_count")),
-                "units_sold": _to_int(sold_info.get("sold_count")),
-                "shop_name": seller_info.get("shop_name", ""),
-                "image_url": images[0] if images else "",
-                "product_url": seo_url.get("canonical_url", ""),
-                "raw_payload": json.dumps(item),
-            }
-        )
-    return parsed
-
-
-def _to_float(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _to_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
+    def clear_log(self):
+        """Wipes captured arrays clean."""
+        self.captured_requests.clear()
+        self.captured_responses.clear()
+        print("[+] Intercept log cleared.")

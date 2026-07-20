@@ -1,151 +1,116 @@
 """
-Pipeline orchestration: moves a product through
-scrape -> research -> approve -> script -> approve -> manual stages.
-
-This is the only place that knows the ORDER of the pipeline. Routers
-call these functions; they never talk to agents or the scraper
-directly. That's what design doc section 3.3 calls the "assembly
-line" - each station only touches the station next to it, through a
-fixed shape (here: a DB row instead of JSON over the wire, but the
-principle is identical).
+backend/app/services/pipeline.py
+Step 5: Service layer bridging FastAPI endpoints with the synchronous CDP Scraper Engine.
+Uses thread pool offloading to protect the async event loop.
 """
+import asyncio
+import logging
+from typing import Dict, Any, List, Optional
+from backend.scraper.run import AffiliateScraperEngine
 
-import json
-from typing import Optional
+logger = logging.getLogger(__name__)
 
-from sqlmodel import Session, select
+class ScrapingPipelineService:
+    @staticmethod
+    def _execute_sync_scrape(
+        target_url: str,
+        session_file: Optional[str] = None,
+        filter_keywords: Optional[List[str]] = None,
+        headless: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Synchronous worker that spins up the engine, executes the scrape, 
+        and guarantees browser cleanup even if a crash occurs.
+        """
+        print(f"[Pipeline Worker] Launching engine for -> {target_url}")
+        # We default to headless=True in production web services!
+        engine = AffiliateScraperEngine(headless=headless, incognito=True)
+        try:
+            results = engine.run_pipeline(
+                target_url=target_url,
+                session_file=session_file,
+                filter_keywords=filter_keywords
+            )
+            return results
+        except Exception as e:
+            logger.error(f"Scrape worker failed for {target_url}: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+        finally:
+            # Guarantee that zombie Chromium processes are NEVER left behind in production
+            engine.close()
 
-from agents.research_agent import build_research_dossier
-from agents.script_agent import generate_scripts
-from app.models import (
-    CardStatus,
-    ContentCard,
-    ResearchDossier,
-    ResearchStatus,
-    ScrapedProduct,
-    ScriptVariation,
-)
-
-
-def start_research(session: Session, product_id: int) -> ResearchDossier:
-    """FR-2.1 - FR-2.3: run deep research on one scraped product."""
-    product = session.get(ScrapedProduct, product_id)
-    if product is None:
-        raise ValueError(f"No scraped product with id {product_id}")
-
-    dossier_data = build_research_dossier(product)
-    dossier = ResearchDossier(
-        product_id=product_id,
-        what_it_does=dossier_data["what_it_does"],
-        key_benefits=json.dumps(dossier_data["key_benefits"]),
-        usp=dossier_data["usp"],
-        review_summary_positive=dossier_data["review_summary_positive"],
-        review_summary_negative=dossier_data["review_summary_negative"],
-        status=ResearchStatus.PENDING,
-    )
-    session.add(dossier)
-
-    card = ContentCard(product_id=product_id, status=CardStatus.RESEARCHED_PENDING)
-    session.add(card)
-
-    session.commit()
-    session.refresh(dossier)
-    return dossier
-
-
-def review_research(
-    session: Session,
-    dossier_id: int,
-    approved: bool,
-    rejection_reason: Optional[str] = None,
-) -> ResearchDossier:
-    """FR-2.3 - FR-2.4: Approval Gate 1. Nothing scripts without this."""
-    dossier = session.get(ResearchDossier, dossier_id)
-    if dossier is None:
-        raise ValueError(f"No research dossier with id {dossier_id}")
-
-    dossier.status = ResearchStatus.APPROVED if approved else ResearchStatus.REJECTED
-    dossier.rejection_reason = None if approved else rejection_reason
-    session.add(dossier)
-
-    card = _card_for_product(session, dossier.product_id)
-    if card and approved:
-        card.status = CardStatus.RESEARCH_APPROVED
-        session.add(card)
-
-    session.commit()
-    session.refresh(dossier)
-    return dossier
-
-
-def start_scripting(session: Session, dossier_id: int) -> list[ScriptVariation]:
-    """FR-3.1 - FR-3.4: write 3 script angles for an approved dossier."""
-    dossier = session.get(ResearchDossier, dossier_id)
-    if dossier is None or dossier.status != ResearchStatus.APPROVED:
-        raise ValueError("Dossier must be approved before scripting can start")
-
-    variations_data = generate_scripts(dossier)
-    variations = []
-    for v in variations_data:
-        variation = ScriptVariation(
-            product_id=dossier.product_id,
-            angle_type=v["angle_type"],
-            hook_ms=v["hook_ms"],
-            body_ms=v["body_ms"],
-            cta_ms=v["cta_ms"],
-            caption_ms=v["caption_ms"],
-            hashtags=json.dumps(v["hashtags"]),
-            visual_notes=v["visual_notes"],
+    @classmethod
+    async def run_async_pipeline(
+        cls,
+        target_url: str,
+        session_file: Optional[str] = None,
+        filter_keywords: Optional[List[str]] = None,
+        headless: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Async entry point called by FastAPI routers or AI agents.
+        Offloads the blocking Chromium execution to an independent background thread.
+        """
+        print(f"[Pipeline Async] Offloading scraping task to worker thread...")
+        
+        # asyncio.to_thread runs our synchronous engine in a separate thread pool,
+        # allowing FastAPI to handle hundreds of other API requests while Chrome works!
+        result = await asyncio.to_thread(
+            cls._execute_sync_scrape,
+            target_url=target_url,
+            session_file=session_file,
+            filter_keywords=filter_keywords,
+            headless=headless
         )
-        session.add(variation)
-        variations.append(variation)
+        
+        return result
+    
+import json
 
-    card = _card_for_product(session, dossier.product_id)
-    if card:
-        card.status = CardStatus.SCRIPTED_PENDING
-        session.add(card)
+def parse_tiktok_shop_item(item: dict) -> dict:
+    """
+    Takes a single raw product item from TikTok Shop's intercepted JSON API payload
+    and maps it to our clean ScrapedProduct schema.
+    """
+    # Helper to safely dig into nested dictionaries without crashing if a key is missing
+    price_info = item.get("product_price_info", {})
+    rate_info = item.get("rate_info", {})
+    sold_info = item.get("sold_info", {})
+    seller_info = item.get("seller_info", {})
+    seo_url = item.get("seo_url", {})
+    image_data = item.get("image", {})
+    
+    # Extracting the first image URL safely
+    url_list = image_data.get("url_list", [])
+    first_image = url_list[0] if url_list else None
 
-    session.commit()
-    for v in variations:
-        session.refresh(v)
-    return variations
+    # Mapping exact fields from your specification table!
+    scraped_product = {
+        "product_id": item.get("product_id"),
+        "title": item.get("title"),
+        
+        # Convert string decimals to floats for Malaysian Ringgit (RM)
+        "price_rm": float(price_info.get("sale_price_decimal", 0.0)),
+        "original_price_rm": float(price_info.get("origin_price_decimal", 0.0)) if price_info.get("origin_price_decimal") else None,
+        
+        # Ratings and review counts
+        "review_score": float(rate_info.get("score", 0.0)) if rate_info.get("score") else None,
+        "review_count": int(rate_info.get("review_count", 0)),
+        
+        # Sales and seller info
+        "units_sold": sold_info.get("sold_count"),
+        "shop_name": seller_info.get("shop_name"),
+        
+        # URLs
+        "product_url": seo_url.get("canonical_url"),
+        "image_url": first_image,
+        
+        # Store the complete unaltered payload just in case you need extra fields later
+        "raw_payload": json.dumps(item)
+    }
+    
+    return scraped_product
 
-
-def select_script(session: Session, script_id: int) -> ContentCard:
-    """FR-3.5 - FR-3.6: operator picks the final script. Card becomes Ready to Film."""
-    script = session.get(ScriptVariation, script_id)
-    if script is None:
-        raise ValueError(f"No script variation with id {script_id}")
-
-    script.is_selected = True
-    session.add(script)
-
-    card = _card_for_product(session, script.product_id)
-    if card is None:
-        raise ValueError(f"No content card for product {script.product_id}")
-    card.selected_script_id = script.id
-    card.status = CardStatus.SCRIPT_APPROVED
-    session.add(card)
-
-    session.commit()
-    session.refresh(card)
-    return card
-
-
-def advance_card_status(session: Session, card_id: int, new_status: CardStatus) -> ContentCard:
-    """FR-4.1: manual status moves (Filming -> Ready to Post -> Posted).
-    No AI is involved from here on - this just records what the operator already did."""
-    card = session.get(ContentCard, card_id)
-    if card is None:
-        raise ValueError(f"No content card with id {card_id}")
-    card.status = new_status
-    session.add(card)
-    session.commit()
-    session.refresh(card)
-    return card
-
-
-def _card_for_product(session: Session, product_id: int) -> Optional[ContentCard]:
-    """A product has exactly one content card once research has started."""
-    statement = select(ContentCard).where(ContentCard.product_id == product_id)
-    return session.exec(statement).first()
