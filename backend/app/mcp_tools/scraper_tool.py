@@ -7,19 +7,23 @@ section 3.2 - "Portability").
 
 from fastmcp import FastMCP
 
-from scraper.run import scrape_products
+from scraper.run import scrape_products_from_latest_capture
 
 mcp = FastMCP("tiktok-scraper")
 
 
 @mcp.tool()
-def run_scraper(category: str = "homepage") -> list[dict]:
-    """Scrape TikTok Shop Malaysia's public storefront and return the shortlisted products.
+def run_scraper() -> list[dict]:
+    """Parse the most recently captured TikTok Shop session and return the
+    shortlisted products.
 
-    FR-1.1, FR-1.5: live product feed + on-demand trigger. `category` is
-    currently informational only - see scraper/README for what's wired up.
+    FR-1.1: this reads whatever was last saved by
+    `python -m scraper.capture_session` - a human has to run that
+    manually first (TikTok blocks fully automated browsing), so this
+    tool covers the deterministic parse + filter half of the pipeline,
+    not live scraping on demand.
     """
-    return scrape_products(category=category)
+    return scrape_products_from_latest_capture()
 
 
 if __name__ == "__main__":

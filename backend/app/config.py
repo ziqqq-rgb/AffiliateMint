@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
-        extra = "ignore"
+        extra = "ignore"  # tolerate leftover keys in .env from before this restructure
 
 
 settings = Settings()
