@@ -25,52 +25,47 @@ class StealthBrowser:
 
     def scroll_infinite(self, max_scrolls: int = 15, base_pause: float = 2.5):
         """
-        Scrolls down incrementally to trigger lazy-loading and background JSON API requests.
-        
-        :param max_scrolls: Maximum number of scroll passes before stopping.
-        :param base_pause: Average seconds to wait between scrolls for network hydration.
+        Scrolls BOTH the main window and any internal scrollable div containers
+        (like TikTok Shop's inner product grids) to trigger Intersection Observers.
         """
         if not self.driver:
             raise Exception("Browser is not running! Start the browser before scrolling.")
 
-        print(f"[+] Starting infinite scroll sequence (Max passes: {max_scrolls})...")
-        
-        # Get initial scroll height of the document using CDP JavaScript evaluation
-        last_height = self.driver.evaluate("document.body.scrollHeight")
+        print(f"[+] Starting deep container scroll sequence (Max passes: {max_scrolls})...")
         
         for pass_num in range(1, max_scrolls + 1):
             print(f"  -> Scroll pass {pass_num}/{max_scrolls}...")
             
-            # 1. Scroll down to the bottom of the currently rendered DOM
-            self.driver.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+            # 1. JavaScript that hunts for ALL scrollable containers on the page and scrolls them!
+            deep_scroll_js = """
+            (() => {
+                // Scroll the main window
+                window.scrollBy(0, window.innerHeight * 0.8);
+                
+                // Find and scroll all internal containers (like TikTok's product feed wrapper)
+                const allElements = document.querySelectorAll('*');
+                for (const el of allElements) {
+                    if (el.scrollHeight > el.clientHeight + 50) {
+                        const style = window.getComputedStyle(el);
+                        if (['auto', 'scroll'].includes(style.overflowY) || ['auto', 'scroll'].includes(style.overflow)) {
+                            el.scrollBy(0, el.clientHeight * 0.8);
+                        }
+                    }
+                }
+            })();
+            """
             
-            # 2. Add randomized human timing so rate-limiters don't flag fixed intervals
-            sleep_time = base_pause + random.uniform(-0.5, 1.2)
+            # Execute 3 incremental scroll bursts per pass
+            for _ in range(3):
+                self.driver.evaluate(deep_scroll_js)
+                self.driver.sleep(0.5)
+                
+            # 2. Add randomized human pause for API packets to hydrate
+            sleep_time = base_pause + random.uniform(-0.3, 0.8)
             self.driver.sleep(max(1.0, sleep_time))
             
-            # 3. Check the new document height after waiting for API hydration
-            new_height = self.driver.evaluate("document.body.scrollHeight")
-            
-            # 4. If the height didn't change, perform a "wiggle scroll" to unstick lazy loaders
-            if new_height == last_height:
-                print("  [!] Page height unchanged. Attempting scroll wiggle...")
-                # Scroll up slightly, wait, then scroll back down
-                self.driver.evaluate("window.scrollBy(0, -400);")
-                self.driver.sleep(1.0)
-                self.driver.evaluate("window.scrollTo(0, document.body.scrollHeight);")
-                self.driver.sleep(2.0)
-                
-                new_height = self.driver.evaluate("document.body.scrollHeight")
-                
-                # If it is STILL unchanged, we have hit the true bottom of the feed
-                if new_height == last_height:
-                    print(f"[SUCCESS] Reached the end of the product feed at pass {pass_num}.")
-                    break
-            
-            last_height = new_height
-            
-        print("[+] Infinite scroll sequence complete.")
-
+        print("[+] Deep infinite scroll sequence complete.")
+        
     def stop(self):
         if self.driver:
             print("[+] Closing browser session...")

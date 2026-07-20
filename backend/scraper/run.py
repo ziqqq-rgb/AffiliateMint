@@ -325,7 +325,7 @@ class AffiliateScraperEngine:
 
 
 # =====================================================================
-# TEST RUNNER WITH PRODUCT PRINTER (SCOPE-SAFE)
+# TEST RUNNER WITH DEEP CONTAINER SCROLL & INSPECTOR
 # =====================================================================
 if __name__ == "__main__":
     print("--- Starting TikTok Shop Infinite Scroll & Wiretap Harvest Test ---")
@@ -345,21 +345,31 @@ if __name__ == "__main__":
         # PRINTING ACTUAL PRODUCT TITLES & PRICES FROM WIRETAP PAYLOADS
         # =================================================================
         print("\n--- Intercepted Wiretap Products ---")
-        
-        # Using a list completely avoids Python global/nonlocal scope errors!
         harvested_items = []
         
         def hunt_and_print_items(obj):
-            """Recursively searches intercepted JSON dictionaries for TikTok product items."""
+            """Recursively searches for TikTok products using flexible key matching."""
             if isinstance(obj, dict):
-                # Check if this dictionary represents a TikTok product
-                if "product_id" in obj and "product_price_info" in obj:
-                    title = obj.get("title", "Unknown Title")
-                    price_dict = obj.get("product_price_info", {})
-                    price = price_dict.get("sale_price_decimal", "0.00")
+                # Check if this object looks like a product (has price info or a title/name)
+                has_price = any(k in obj for k in ["product_price_info", "price", "sale_price", "price_info", "discount_price", "sale_price_decimal"])
+                has_title = any(k in obj for k in ["title", "product_name", "name"]) and len(str(obj.get("title", ""))) > 5
+                
+                if has_price and has_title:
+                    title = obj.get("title") or obj.get("product_name") or obj.get("name")
                     
+                    # Dig out price regardless of how deeply TikTok nested it
+                    price = "0.00"
+                    if isinstance(obj.get("product_price_info"), dict):
+                        price = obj["product_price_info"].get("sale_price_decimal") or obj["product_price_info"].get("origin_price_decimal", "0.00")
+                    elif isinstance(obj.get("price_info"), dict):
+                        price = obj["price_info"].get("sale_price") or obj["price_info"].get("price", "0.00")
+                    elif obj.get("sale_price"):
+                        price = str(obj.get("sale_price"))
+                    elif obj.get("price"):
+                        price = str(obj.get("price"))
+                        
                     harvested_items.append((title, price))
-                    print(f"  [API Harvest #{len(harvested_items)}] -> {title[:50]}... | RM {price}")
+                    print(f"  [API Harvest #{len(harvested_items)}] -> {str(title)[:50]}... | RM {price}")
                 else:
                     for key, value in obj.items():
                         hunt_and_print_items(value)
@@ -374,7 +384,13 @@ if __name__ == "__main__":
                 hunt_and_print_items(payload)
                 
         if len(harvested_items) == 0:
-            print("  [!] No product items found inside the intercepted API calls.")
+            print("  [!] No product items matched our filter. Dumping top-level keys of caught API payloads:")
+            for idx, res in enumerate(results["network_data"]["captured_responses"], 1):
+                payload = res.get("payload")
+                if isinstance(payload, dict):
+                    print(f"    Sample #{idx} ({res['url'][:60]}...): Keys -> {list(payload.keys())}")
+                elif payload:
+                    print(f"    Sample #{idx} ({res['url'][:60]}...): Type -> {type(payload)}")
         else:
             print(f"\n[SUCCESS] Extracted {len(harvested_items)} total products from background API wiretap!")
         print("------------------------------------\n")

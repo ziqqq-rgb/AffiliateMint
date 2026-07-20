@@ -51,27 +51,27 @@ class NetworkInterceptor:
         if self._matches_filter(res.url) or is_json:
             parsed_payload = None
             try:
-                # 1. CRITICAL: Command CDP to fetch the actual response body from memory!
-                body_obj = await self.browser.driver.send(
+                # Use event.target.send to reliably fetch the body over the active CDP tab
+                body_obj = await event.target.send(
                     mycdp.network.get_response_body(event.request_id)
                 )
-                # CDP returns a tuple (body_string, base64_encoded_bool)
                 raw_body = body_obj[0] if isinstance(body_obj, tuple) else getattr(body_obj, 'body', str(body_obj))
                 
                 import json
                 parsed_payload = json.loads(raw_body)
-            except Exception:
-                # Background XHR requests sometimes abort or close before the body is readable
-                pass
+                print(f"[WIRETAP] Successfully captured JSON ({len(raw_body)} bytes) from: {res.url[:60]}...")
+            except Exception as e:
+                # Now we print exact debugging errors if Chrome refuses to release the body!
+                print(f"[WIRETAP NOTICE] Could not read body for {res.url[:50]}: {e}")
 
             self.captured_responses.append({
                 "url": res.url,
                 "status": res.status,
                 "mime_type": res.mime_type,
-                "payload": parsed_payload,  # <-- Now storing the actual product JSON!
+                "payload": parsed_payload,
                 "timestamp": time.time()
             })
-
+            
     def start_intercepting(self):
         """Attaches CDP network event handlers to the live browser session."""
         if not self.browser.driver:
