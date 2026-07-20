@@ -38,16 +38,24 @@ class CardStatus(str, Enum):
 
 
 class ScrapedProduct(SQLModel, table=True):
-    """One product pulled from TikTok Shop by the scraper. FR-1.1 - FR-1.4."""
+    """One product pulled from TikTok Shop's public website. FR-1.1 - FR-1.4.
+
+    No commission data here on purpose: that field only exists behind
+    TikTok's Seller/Affiliate Center login, which this scraper doesn't
+    use (see scraper/README or backend/README "How the scraper works").
+    Shortlisting instead ranks on rating + units sold.
+    """
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    tiktok_product_id: str  # TikTok's own ID - lets repeat scrapes de-dupe later
     title: str
     price_rm: float
-    commission_percentage: float
-    est_commission_rm: float
+    original_price_rm: float = 0.0  # pre-discount price, 0 if not on sale
     review_score: float
-    stock_volume: int
+    review_count: int = 0
     units_sold: int
+    shop_name: str = ""
+    image_url: str = ""
     product_url: str
     raw_payload: str  # FR-1.4: keep the raw response so a parsing bug doesn't lose data
     scraped_at: datetime = Field(default_factory=datetime.utcnow)

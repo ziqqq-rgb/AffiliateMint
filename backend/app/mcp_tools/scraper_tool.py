@@ -13,12 +13,13 @@ mcp = FastMCP("tiktok-scraper")
 
 
 @mcp.tool()
-def run_scraper(category: str, shortlist_size: int = 5) -> list[dict]:
-    """Scrape TikTok Shop Malaysia for one category and return the shortlisted products.
+def run_scraper(category: str = "homepage") -> list[dict]:
+    """Scrape TikTok Shop Malaysia's public storefront and return the shortlisted products.
 
-    FR-1.1, FR-1.3, FR-1.5: live product search + filter rules + on-demand trigger.
+    FR-1.1, FR-1.5: live product feed + on-demand trigger. `category` is
+    currently informational only - see scraper/README for what's wired up.
     """
-    return scrape_products(category=category, shortlist_size=shortlist_size)
+    return scrape_products(category=category)
 
 
 if __name__ == "__main__":

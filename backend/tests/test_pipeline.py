@@ -24,14 +24,13 @@ def session():
 @pytest.fixture()
 def product(session) -> ScrapedProduct:
     p = ScrapedProduct(
+        tiktok_product_id="1730425757592291093",
         title="Mini fan",
         price_rm=25.0,
-        commission_percentage=20.0,
-        est_commission_rm=5.0,
         review_score=4.5,
-        stock_volume=200,
+        review_count=120,
         units_sold=1000,
-        product_url="https://example.com",
+        product_url="https://shop.tiktok.com/my/pdp/mini-fan/1730425757592291093",
         raw_payload="{}",
     )
     session.add(p)

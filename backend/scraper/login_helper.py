@@ -1,16 +1,12 @@
 """
-One-time (or occasional) manual login helper.
+Manual browsing helper for finding TikTok Shop's real endpoints.
 
-Run this whenever your saved TikTok Shop session has expired, or the
-very first time you set up the scraper. It opens a REAL, visible
-browser window using the same persistent profile the scraper uses
-(scraper/browser.py's PROFILE_DIR), so once you log in here, every
-future scraper run - headless or not - stays logged in as you.
-
-This is also the easiest way to find TikTok's real product-search
-endpoint for scraper/config.py + scraper/intercept.py: once you're
-logged in, open DevTools -> Network -> XHR, search a product, and
-look for the response that contains price/commission/stock data.
+The public storefront doesn't require login, but this still opens a
+REAL, visible browser window using the same persistent profile the
+scraper uses (scraper/browser.py's PROFILE_DIR) - useful whenever you
+need to manually browse to a page (a category, a search result) and
+capture ITS network endpoint the same way the homepage feed was
+captured, since only the homepage is wired up in scraper/config.py today.
 
 Usage:
     cd backend
@@ -22,26 +18,24 @@ import asyncio
 from playwright.async_api import async_playwright
 
 from scraper.browser import PROFILE_DIR
+from scraper.config import config
 
-# TODO: point this at wherever you actually browse products with
-# commission data - for most MY affiliates that's the Affiliate
-# Center's "Find products" page, not the plain shop.tiktok.com
-# storefront (which doesn't show commission %).
-START_URL = "https://affiliate.tiktok.com/"
+START_URL = config.search_url_template
 
 
 async def main() -> None:
     async with async_playwright() as playwright:
         context = await playwright.chromium.launch_persistent_context(
             PROFILE_DIR,
-            headless=False,  # always visible - the whole point is manual login
+            headless=False,  # always visible - the whole point is manual browsing
         )
         page = await context.new_page()
         await page.goto(START_URL)
 
-        print("\nBrowser is open. Log in manually, then browse to a product")
-        print("search and open DevTools -> Network -> XHR to inspect responses.")
-        input("Press Enter here once you're done (this keeps the session saved)...\n")
+        print("\nBrowser is open. Browse to the page you want to capture (a category,")
+        print("a search result, etc.) and open DevTools -> Network -> XHR to find its")
+        print("product-list endpoint, the same way the homepage feed was found.")
+        input("Press Enter here once you're done (this keeps the session/profile saved)...\n")
 
         await context.close()
 

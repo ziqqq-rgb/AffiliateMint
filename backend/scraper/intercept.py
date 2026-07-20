@@ -3,10 +3,10 @@ Network response interception - the core of FR-1.2: read TikTok Shop's
 internal API responses instead of the rendered page, so front-end
 layout changes don't break the scraper as easily.
 
-TODO: the field paths below (item["title"], etc.) are placeholders.
-Open TikTok Shop, filter the browser Network tab to XHR/Fetch, search
-for a product, and find the real response shape - then update
-`parse_response` to match it.
+We never build or sign the request ourselves - TikTok's own page JS
+does that (see the X-Tts-Oec-Bsid token on a real capture, which is a
+generated anti-bot signature, not something to reverse-engineer). We
+just let Playwright load the real page and listen for the response.
 """
 
 import json
@@ -37,24 +37,34 @@ class ResponseCollector:
 
 
 def parse_response(raw_payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Turn one raw API response into a list of parsed product dicts.
+    """Turns one raw homepage-feed API response into parsed product dicts.
 
     FR-1.4: the raw payload is kept separately by the caller, so if
     this parsing logic is wrong or TikTok changes field names, no data
     is lost - only re-parsing is needed once the fix lands.
     """
-    items = raw_payload.get("items", [])  # TODO: confirm the real top-level key
+    items = raw_payload.get("data", {}).get("productList", [])
     parsed = []
     for item in items:
+        price_info = item.get("product_price_info", {})
+        rate_info = item.get("rate_info", {})
+        sold_info = item.get("sold_info", {})
+        seller_info = item.get("seller_info", {})
+        seo_url = item.get("seo_url", {})
+        images = item.get("image", {}).get("url_list", [])
+
         parsed.append(
             {
+                "tiktok_product_id": item.get("product_id", ""),
                 "title": item.get("title", ""),
-                "price_rm": _to_float(item.get("price")),
-                "commission_percentage": _to_float(item.get("commission_rate")),
-                "review_score": _to_float(item.get("rating")),
-                "stock_volume": int(item.get("stock", 0)),
-                "units_sold": int(item.get("sold_count", 0)),
-                "product_url": item.get("product_url", ""),
+                "price_rm": _to_float(price_info.get("sale_price_decimal")),
+                "original_price_rm": _to_float(price_info.get("origin_price_decimal")),
+                "review_score": _to_float(rate_info.get("score")),
+                "review_count": _to_int(rate_info.get("review_count")),
+                "units_sold": _to_int(sold_info.get("sold_count")),
+                "shop_name": seller_info.get("shop_name", ""),
+                "image_url": images[0] if images else "",
+                "product_url": seo_url.get("canonical_url", ""),
                 "raw_payload": json.dumps(item),
             }
         )
@@ -66,3 +76,10 @@ def _to_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _to_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0

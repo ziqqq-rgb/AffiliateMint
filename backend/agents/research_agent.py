@@ -2,8 +2,8 @@
 Deep research agent - FR-2.1, FR-2.2.
 
 Builds one research dossier per scraped product. Grounds the prompt
-in the product's own scraped data (title, raw review payload) so
-Hermes isn't inventing facts from general knowledge - FR-2.2.
+in the product's own scraped data (title, raw payload) so Hermes
+isn't inventing facts from general knowledge - FR-2.2.
 """
 
 from app.models import ScrapedProduct
@@ -14,7 +14,7 @@ Base everything strictly on the data below - do not invent facts.
 
 Product title: {title}
 Price: RM{price_rm}
-Rating: {review_score}
+Rating: {review_score} ({review_count} reviews)
 Units sold: {units_sold}
 Raw listing data: {raw_payload}
 
@@ -33,6 +33,7 @@ def build_research_dossier(product: ScrapedProduct) -> dict:
         title=product.title,
         price_rm=product.price_rm,
         review_score=product.review_score,
+        review_count=product.review_count,
         units_sold=product.units_sold,
         raw_payload=product.raw_payload,
     )

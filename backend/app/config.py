@@ -16,18 +16,12 @@ class Settings(BaseSettings):
 
     hermes_api_url: str = "http://localhost:8080"  # TODO: point at your Hermes Agent instance
     hermes_api_key: str = ""
-    nvidia_api_key: str = ""
-    
-    scraper_headless: bool = True
-    scraper_shortlist_size: int = 5
-    scraper_min_commission_pct: float = 15.0
-    scraper_min_stock: int = 50
 
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
+    scraper_headless: bool = True
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 
 settings = Settings()

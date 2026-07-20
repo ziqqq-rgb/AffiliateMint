@@ -1,8 +1,9 @@
 """
 Playwright browser session management.
 
-Uses a dedicated, persistent browser profile - separate from any
-personal TikTok login (NFR 5.2) - and centralizes the one place that
+Uses a dedicated, persistent browser profile so the scraper looks
+like a normal returning visitor across runs instead of a fresh
+anonymous session every time - and centralizes the one place that
 launches/closes the browser so every other scraper module just gets a
 ready-to-use page.
 """
@@ -16,7 +17,7 @@ from playwright.async_api import BrowserContext, async_playwright
 from app.config import settings
 from scraper.config import config
 
-PROFILE_DIR = "./scraper/.browser_profile"  # dedicated, separate from personal login
+PROFILE_DIR = "./scraper/.browser_profile"
 
 
 @asynccontextmanager
