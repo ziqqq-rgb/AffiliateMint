@@ -1,7 +1,7 @@
 """Thin HTTP layer for scraped products. No business logic here -
 see app/services/pipeline.py for what actually happens on each action."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.db import get_session
@@ -17,4 +17,7 @@ def list_products(session: Session = Depends(get_session)):
 
 @router.get("/{product_id}", response_model=ScrapedProduct)
 def get_product(product_id: int, session: Session = Depends(get_session)):
-    return session.get(ScrapedProduct, product_id)
+    product = session.get(ScrapedProduct, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail=f"No product with id {product_id}")
+    return product

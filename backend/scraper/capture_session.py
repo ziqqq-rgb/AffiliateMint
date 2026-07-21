@@ -5,7 +5,7 @@ Uses SeleniumBase CDP's built-in cookie methods with positional arguments to avo
 """
 import os
 import time
-from backend.scraper.browser import StealthBrowser
+from scraper.browser import StealthBrowser
 
 class SessionManager:
     def __init__(self, browser: StealthBrowser):

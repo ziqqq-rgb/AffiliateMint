@@ -27,20 +27,9 @@ Run tests with `pytest`.
 
 ## How the scraper works
 
-`scraper/run.py` drives a real Playwright browser to
-`shop.tiktok.com/my` and listens for the product-feed network response
-(`scraper/intercept.py`) instead of building the request by hand -
-TikTok's own page JS constructs and signs it; we just read what comes
-back. See `scraper/config.py` for the endpoint pattern currently
-captured, and `scraper/login_helper.py` if you need to open a visible
-browser to find a *different* page's endpoint (only the homepage feed
-is wired up today - a category or search page would need its own
-capture, same process).
+The scraper drives a real Chromium session via SeleniumBase's CDP/UC mode (anti-bot resistant) and attaches Playwright over the same CDP connection to read network traffic. It combines two capture methods: a network wiretap that inspects every JSON response for product-shaped objects, and a DOM fallback that reads whatever's visibly rendered. This runs directly against shop.tiktok.com — no mobile app, no Appium, no OCR. That approach was tried and dropped: TikTok's mobile app renders product screens as canvas with zero text nodes, making element-based or OCR automation fragile and slow by comparison. The web storefront has a real DOM and real network responses, which is strictly easier to work with.
 
-No commission data is available on the public storefront - that only
-exists behind TikTok's Seller/Affiliate Center login. The pipeline
-shortlists on rating and units sold instead
-(`scraper/filters.py`).
+As before: no commission data exists on the public storefront (that's behind the Seller/Affiliate Center login), so shortlisting still ranks on rating + units sold.
 
 ## What's stubbed vs real
 

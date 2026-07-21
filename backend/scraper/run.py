@@ -240,6 +240,8 @@ def run_hybrid_scraper(target_url: str):
             print("[!] No products harvested.")
         print("--- Scrape Complete ---")
 
+    return harvested_items
+
 
 if __name__ == "__main__":
     run_hybrid_scraper("https://shop.tiktok.com/my")

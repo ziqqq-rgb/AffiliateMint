@@ -74,7 +74,7 @@ Note: because earnings are entered by hand instead of pulled by API, the "feedba
 | Backend & API | Python (FastAPI) | Orchestrates the 3 stages, serves the dashboard, streams progress. |
 | Reasoning Engine | Hermes Agent (Nous Research) | Powers the Research and Script stages only; holds persistent memory of past scripts and results. |
 | Tooling Bridge | FastMCP | Wraps the scraper (and optionally the Hermes agents) as callable, portable tools. |
-| Scraping Engine | Playwright (Python, async) | Headless browser, intercepts live network responses for product data. |
+| Scraping Engine | SeleniumBase (CDP/UC mode) + Playwright over CDP | Headless-resistant browser session; hybrid network-wiretap + DOM-fallback capture against the TikTok Shop web storefront. No mobile app automation. |
 | Frontend | React (Vite) \+ Tailwind \+ shadcn/ui | Kanban dashboard, approval gates, teleprompter, manual earnings form. |
 | Database / Memory | SQLite (Postgres later if needed) | Structured product/script/earnings data, plus the Hermes memory ledger. |
 

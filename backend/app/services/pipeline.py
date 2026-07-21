@@ -1,116 +1,172 @@
 """
-backend/app/services/pipeline.py
-Step 5: Service layer bridging FastAPI endpoints with the synchronous CDP Scraper Engine.
-Uses thread pool offloading to protect the async event loop.
+Core state machine for the product -> dossier -> script -> card pipeline
+(design doc 3.3 "Data Flow"). Each function is one status transition;
+ContentCard.status is the single source of truth for the Kanban board (FR-4.1).
+
+Scraping lives in app/services/scraping_pipeline.py - this file starts
+downstream of that, at "a ScrapedProduct row already exists".
 """
-import asyncio
-import logging
-from typing import Dict, Any, List, Optional
-from backend.scraper.run import AffiliateScraperEngine
 
-logger = logging.getLogger(__name__)
-
-class ScrapingPipelineService:
-    @staticmethod
-    def _execute_sync_scrape(
-        target_url: str,
-        session_file: Optional[str] = None,
-        filter_keywords: Optional[List[str]] = None,
-        headless: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Synchronous worker that spins up the engine, executes the scrape, 
-        and guarantees browser cleanup even if a crash occurs.
-        """
-        print(f"[Pipeline Worker] Launching engine for -> {target_url}")
-        # We default to headless=True in production web services!
-        engine = AffiliateScraperEngine(headless=headless, incognito=True)
-        try:
-            results = engine.run_pipeline(
-                target_url=target_url,
-                session_file=session_file,
-                filter_keywords=filter_keywords
-            )
-            return results
-        except Exception as e:
-            logger.error(f"Scrape worker failed for {target_url}: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
-        finally:
-            # Guarantee that zombie Chromium processes are NEVER left behind in production
-            engine.close()
-
-    @classmethod
-    async def run_async_pipeline(
-        cls,
-        target_url: str,
-        session_file: Optional[str] = None,
-        filter_keywords: Optional[List[str]] = None,
-        headless: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Async entry point called by FastAPI routers or AI agents.
-        Offloads the blocking Chromium execution to an independent background thread.
-        """
-        print(f"[Pipeline Async] Offloading scraping task to worker thread...")
-        
-        # asyncio.to_thread runs our synchronous engine in a separate thread pool,
-        # allowing FastAPI to handle hundreds of other API requests while Chrome works!
-        result = await asyncio.to_thread(
-            cls._execute_sync_scrape,
-            target_url=target_url,
-            session_file=session_file,
-            filter_keywords=filter_keywords,
-            headless=headless
-        )
-        
-        return result
-    
 import json
+from datetime import datetime
+from typing import Optional
 
-def parse_tiktok_shop_item(item: dict) -> dict:
-    """
-    Takes a single raw product item from TikTok Shop's intercepted JSON API payload
-    and maps it to our clean ScrapedProduct schema.
-    """
-    # Helper to safely dig into nested dictionaries without crashing if a key is missing
-    price_info = item.get("product_price_info", {})
-    rate_info = item.get("rate_info", {})
-    sold_info = item.get("sold_info", {})
-    seller_info = item.get("seller_info", {})
-    seo_url = item.get("seo_url", {})
-    image_data = item.get("image", {})
-    
-    # Extracting the first image URL safely
-    url_list = image_data.get("url_list", [])
-    first_image = url_list[0] if url_list else None
+from sqlmodel import Session, select
 
-    # Mapping exact fields from your specification table!
-    scraped_product = {
-        "product_id": item.get("product_id"),
-        "title": item.get("title"),
-        
-        # Convert string decimals to floats for Malaysian Ringgit (RM)
-        "price_rm": float(price_info.get("sale_price_decimal", 0.0)),
-        "original_price_rm": float(price_info.get("origin_price_decimal", 0.0)) if price_info.get("origin_price_decimal") else None,
-        
-        # Ratings and review counts
-        "review_score": float(rate_info.get("score", 0.0)) if rate_info.get("score") else None,
-        "review_count": int(rate_info.get("review_count", 0)),
-        
-        # Sales and seller info
-        "units_sold": sold_info.get("sold_count"),
-        "shop_name": seller_info.get("shop_name"),
-        
-        # URLs
-        "product_url": seo_url.get("canonical_url"),
-        "image_url": first_image,
-        
-        # Store the complete unaltered payload just in case you need extra fields later
-        "raw_payload": json.dumps(item)
-    }
-    
-    return scraped_product
+from agents.research_agent import build_research_dossier
+from agents.script_agent import generate_scripts
+from app.models import (
+    CardStatus,
+    ContentCard,
+    ResearchDossier,
+    ResearchStatus,
+    ScrapedProduct,
+    ScriptVariation,
+)
 
+
+def _card_for_product(session: Session, product_id: int) -> Optional[ContentCard]:
+    statement = select(ContentCard).where(ContentCard.product_id == product_id)
+    return session.exec(statement).first()
+
+
+def _get_or_create_card(session: Session, product_id: int) -> ContentCard:
+    card = _card_for_product(session, product_id)
+    if card is None:
+        card = ContentCard(product_id=product_id, status=CardStatus.SCRAPED)
+        session.add(card)
+        session.commit()
+        session.refresh(card)
+    return card
+
+
+# --- Stage 1: Research (FR-2.1 - FR-2.4) ------------------------------------
+
+def start_research(session: Session, product_id: int) -> ResearchDossier:
+    product = session.get(ScrapedProduct, product_id)
+    if product is None:
+        raise ValueError(f"No ScrapedProduct with id {product_id}")
+
+    data = build_research_dossier(product)
+    dossier = ResearchDossier(
+        product_id=product_id,
+        what_it_does=data["what_it_does"],
+        key_benefits=json.dumps(data["key_benefits"]),
+        usp=data["usp"],
+        review_summary_positive=data["review_summary_positive"],
+        review_summary_negative=data["review_summary_negative"],
+        status=ResearchStatus.PENDING,
+    )
+    session.add(dossier)
+
+    card = _get_or_create_card(session, product_id)
+    card.status = CardStatus.RESEARCHED_PENDING
+    session.add(card)
+
+    session.commit()
+    session.refresh(dossier)
+    return dossier
+
+
+def review_research(
+    session: Session,
+    dossier_id: int,
+    approved: bool,
+    rejection_reason: Optional[str] = None,
+) -> ResearchDossier:
+    """Gate 1. Approving advances the card; rejecting archives the dossier
+    in place (FR-2.4) and leaves the card where it is."""
+    dossier = session.get(ResearchDossier, dossier_id)
+    if dossier is None:
+        raise ValueError(f"No ResearchDossier with id {dossier_id}")
+
+    if approved:
+        dossier.status = ResearchStatus.APPROVED
+        card = _card_for_product(session, dossier.product_id)
+        if card:
+            card.status = CardStatus.RESEARCH_APPROVED
+            session.add(card)
+    else:
+        dossier.status = ResearchStatus.REJECTED
+        dossier.rejection_reason = rejection_reason
+
+    session.add(dossier)
+    session.commit()
+    session.refresh(dossier)
+    return dossier
+
+
+# --- Stage 2: Scripting (FR-3.1 - FR-3.6) -----------------------------------
+
+def start_scripting(session: Session, dossier_id: int) -> list[ScriptVariation]:
+    dossier = session.get(ResearchDossier, dossier_id)
+    if dossier is None:
+        raise ValueError(f"No ResearchDossier with id {dossier_id}")
+    if dossier.status != ResearchStatus.APPROVED:
+        raise ValueError("Dossier must be approved before scripting (Gate 1)")
+
+    variations = []
+    for entry in generate_scripts(dossier):
+        variation = ScriptVariation(
+            product_id=dossier.product_id,
+            angle_type=entry["angle_type"],
+            hook_ms=entry["hook_ms"],
+            body_ms=entry["body_ms"],
+            cta_ms=entry["cta_ms"],
+            caption_ms=entry["caption_ms"],
+            hashtags=json.dumps(entry["hashtags"]),
+            visual_notes=entry["visual_notes"],
+        )
+        session.add(variation)
+        variations.append(variation)
+
+    card = _card_for_product(session, dossier.product_id)
+    if card:
+        card.status = CardStatus.SCRIPTED_PENDING
+        session.add(card)
+
+    session.commit()
+    for v in variations:
+        session.refresh(v)
+    return variations
+
+
+def select_script(session: Session, script_id: int) -> ContentCard:
+    """Gate 2 (FR-3.5/3.6). Selecting a variation makes it the card's
+    single source of truth and moves the card to 'Ready to Film'."""
+    script = session.get(ScriptVariation, script_id)
+    if script is None:
+        raise ValueError(f"No ScriptVariation with id {script_id}")
+
+    script.is_selected = True
+    session.add(script)
+
+    card = _card_for_product(session, script.product_id)
+    if card is None:
+        raise ValueError(f"No ContentCard for product {script.product_id}")
+    card.selected_script_id = script.id
+    card.status = CardStatus.SCRIPT_APPROVED
+    session.add(card)
+
+    session.commit()
+    session.refresh(card)
+    return card
+
+
+# --- Stage 3: Manual Kanban moves (FR-4.1) ----------------------------------
+
+def advance_card_status(session: Session, card_id: int, new_status: CardStatus) -> ContentCard:
+    card = session.get(ContentCard, card_id)
+    if card is None:
+        raise ValueError(f"No ContentCard with id {card_id}")
+
+    card.status = new_status
+    if new_status == CardStatus.FILMING and card.filmed_at is None:
+        card.filmed_at = datetime.utcnow()
+    if new_status == CardStatus.POSTED and card.posted_at is None:
+        card.posted_at = datetime.utcnow()
+
+    session.add(card)
+    session.commit()
+    session.refresh(card)
+    return card

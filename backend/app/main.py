@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
-from app.routers import cards, earnings, products, research, scripts
+from app.routers import cards, earnings, products, research, scraper, scripts
 
 app = FastAPI(title="TikTok Shop Affiliate AI Engine")
 
@@ -26,7 +26,7 @@ app.include_router(research.router)
 app.include_router(scripts.router)
 app.include_router(cards.router)
 app.include_router(earnings.router)
-
+app.include_router(scraper.router)
 
 @app.on_event("startup")
 def on_startup():

@@ -1,51 +1,31 @@
-"""
-backend/app/routers/research.py
-Step 5: FastAPI Router exposing our CDP Scraping Pipeline as a REST API endpoint.
-"""
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, HttpUrl
-from typing import List, Optional, Dict, Any
-from backend.app.services.pipeline import ScrapingPipelineService
+"""HTTP layer for the research stage - Approval Gate 1 (FR-2.3, FR-2.4)."""
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlmodel import Session
 
-router = APIRouter(prefix="/api/research", tags=["Research & Scraping"])
+from app.db import get_session
+from app.models import ResearchDossier
+from app.services.pipeline import review_research, start_research
 
-# Request Validation Schema using Pydantic
-class ScrapeRequestPayload(BaseModel):
-    url: str
-    session_file: Optional[str] = None
-    keywords: Optional[List[str]] = ["campaign", "token", "json", "api", "affiliate", "stats"]
-    headless: bool = True
+router = APIRouter(prefix="/research", tags=["research"])
 
-@router.post("/scrape", response_model=Dict[str, Any])
-async def trigger_live_scrape(payload: ScrapeRequestPayload):
-    """
-    Triggers an on-demand CDP scrape and returns both page metadata 
-    and intercepted background API payloads cleanly to the client.
-    """
+
+class ReviewRequest(BaseModel):
+    approved: bool
+    rejection_reason: str | None = None
+
+
+@router.post("/{product_id}/generate", response_model=ResearchDossier)
+def generate(product_id: int, session: Session = Depends(get_session)):
     try:
-        print(f"\n[API Endpoint] Received scrape request for: {payload.url}")
-        
-        # Call our async pipeline bridge
-        results = await ScrapingPipelineService.run_async_pipeline(
-            target_url=payload.url,
-            session_file=payload.session_file,
-            filter_keywords=payload.keywords,
-            headless=payload.headless
-        )
-        
-        if not results.get("success"):
-            raise HTTPException(
-                status_code=500, 
-                detail=results.get("error", "The scraping pipeline failed unexpectedly.")
-            )
-            
-        return {
-            "status": "success",
-            "message": f"Successfully intercepted {results['network_data']['total_responses']} network payloads.",
-            "data": results
-        }
-        
-    except Exception as e:
-        # Catch unforeseen routing errors and return a clean JSON error response
-        print(f"[API Error] {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Pipeline execution error: {str(e)}")
+        return start_research(session, product_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{dossier_id}/review", response_model=ResearchDossier)
+def review(dossier_id: int, body: ReviewRequest, session: Session = Depends(get_session)):
+    try:
+        return review_research(session, dossier_id, body.approved, body.rejection_reason)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
