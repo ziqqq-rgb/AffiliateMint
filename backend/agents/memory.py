@@ -8,6 +8,7 @@ this worked before?" That's a deliberately honest scope, matching the
 doc's own risk notes.
 """
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -24,6 +25,15 @@ def _get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.execute(_CREATE_TABLE_SQL)
     return conn
+
+
+def _sanitize_fts_query(text: str) -> str:
+    """FTS5's MATCH syntax treats &, %, (, ), -, etc. as query operators,
+    not literal characters - a USP like "turmeric & lemon (70% off)"
+    raises a syntax error otherwise. Strip down to plain words since this
+    is a keyword lookup, not a query language the caller controls."""
+    words = re.findall(r"\w+", text)
+    return " ".join(words)
 
 
 def remember_performance(script, earnings) -> None:
@@ -49,11 +59,15 @@ def search_similar_performance(dossier, limit: int = 3) -> str:
     """Full-text search for past hooks/angles related to this product's
     USP. Returns a short plain-text summary the script prompt can drop
     in directly."""
+    query = _sanitize_fts_query(dossier.usp)
+    if not query:
+        return ""
+
     conn = _get_connection()
     cursor = conn.execute(
         "SELECT angle_type, hook_ms, commission_earned_rm FROM memory "
         "WHERE memory MATCH ? ORDER BY rank LIMIT ?",
-        (dossier.usp, limit),
+        (query, limit),
     )
     rows = cursor.fetchall()
     conn.close()
