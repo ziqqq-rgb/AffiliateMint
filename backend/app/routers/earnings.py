@@ -1,12 +1,10 @@
-"""HTTP layer for the manual earnings log (FR-4.4, FR-4.5, FR-4.6)."""
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.db import get_session
 from app.models import EarningsEntry
-from app.services.feedback import cards_missing_earnings, log_earnings
+from app.services.feedback import cards_missing_earnings, list_earnings_for_card, log_earnings
 
 router = APIRouter(prefix="/earnings", tags=["earnings"])
 
@@ -30,6 +28,12 @@ def log(card_id: int, body: EarningsRequest, session: Session = Depends(get_sess
         commission_earned_rm=body.commission_earned_rm,
         notes=body.notes,
     )
+
+
+@router.get("/card/{card_id}", response_model=list[EarningsEntry])
+def list_for_card(card_id: int, session: Session = Depends(get_session)):
+    """History view: every logged entry for one card, newest first."""
+    return list_earnings_for_card(session, card_id)
 
 
 @router.get("/reminders")

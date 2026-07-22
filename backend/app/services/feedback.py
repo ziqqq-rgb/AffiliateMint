@@ -65,3 +65,13 @@ def cards_missing_earnings(session: Session, days_since_posted: int = 3) -> list
         ContentCard.posted_at < cutoff,
     )
     return list(session.exec(statement))
+
+def list_earnings_for_card(session: Session, card_id: int) -> list[EarningsEntry]:
+    """History view (FR-4.7 style): every earnings entry ever logged for one
+    card, most recent first."""
+    statement = (
+        select(EarningsEntry)
+        .where(EarningsEntry.card_id == card_id)
+        .order_by(EarningsEntry.date_checked.desc())
+    )
+    return list(session.exec(statement))
