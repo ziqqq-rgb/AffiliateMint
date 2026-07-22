@@ -1,4 +1,3 @@
-"""HTTP layer for on-demand scraping (FR-1.5)."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
@@ -7,7 +6,7 @@ from app.db import get_session
 from app.models import ScrapedProduct
 from app.services.scraping_pipeline import ScrapingPipelineService, save_scraped_products
 
-router = APIRouter(prefix="/api/scraper", tags=["scraper"])
+router = APIRouter(prefix="/scraper", tags=["scraper"])  
 
 
 class ScrapeRequest(BaseModel):

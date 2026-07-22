@@ -1,9 +1,3 @@
-/**
- * Mirrors backend/app/models.py. Kept as one file since the shapes are
- * small and it's the single source of truth the frontend checks
- * against when the backend schema changes.
- */
-
 export type CardStatus =
   | "scraped"
   | "researched_pending"
@@ -19,11 +13,12 @@ export interface ScrapedProduct {
   id: number;
   title: string;
   price_rm: number;
-  commission_percentage: number;
-  est_commission_rm: number;
+  original_price_rm: number;
   review_score: number;
-  stock_volume: number;
+  review_count: number;
   units_sold: number;
+  shop_name: string;
+  image_url: string;
   product_url: string;
   scraped_at: string;
 }
@@ -32,12 +27,13 @@ export interface ResearchDossier {
   id: number;
   product_id: number;
   what_it_does: string;
-  key_benefits: string[];
+  key_benefits: string; // JSON-encoded list - JSON.parse before rendering
   usp: string;
   review_summary_positive: string;
   review_summary_negative: string;
   status: "pending" | "approved" | "rejected";
   rejection_reason: string | null;
+  created_at: string;
 }
 
 export interface ScriptVariation {
@@ -48,7 +44,7 @@ export interface ScriptVariation {
   body_ms: string;
   cta_ms: string;
   caption_ms: string;
-  hashtags: string[];
+  hashtags: string; // JSON-encoded list - JSON.parse before rendering
   visual_notes: string;
   is_selected: boolean;
 }

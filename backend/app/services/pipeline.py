@@ -153,8 +153,6 @@ def select_script(session: Session, script_id: int) -> ContentCard:
     return card
 
 
-# --- Stage 3: Manual Kanban moves (FR-4.1) ----------------------------------
-
 def advance_card_status(session: Session, card_id: int, new_status: CardStatus) -> ContentCard:
     card = session.get(ContentCard, card_id)
     if card is None:
@@ -170,3 +168,17 @@ def advance_card_status(session: Session, card_id: int, new_status: CardStatus) 
     session.commit()
     session.refresh(card)
     return card
+
+def get_dossiers_for_product(session: Session, product_id: int) -> list[ResearchDossier]:
+    """Newest first, includes rejected ones (FR-2.4 - kept for reference)."""
+    statement = (
+        select(ResearchDossier)
+        .where(ResearchDossier.product_id == product_id)
+        .order_by(ResearchDossier.created_at.desc())
+    )
+    return list(session.exec(statement))
+
+
+def get_scripts_for_product(session: Session, product_id: int) -> list[ScriptVariation]:
+    statement = select(ScriptVariation).where(ScriptVariation.product_id == product_id)
+    return list(session.exec(statement))

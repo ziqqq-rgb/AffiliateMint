@@ -1,3 +1,4 @@
+# backend/app/main.py
 """
 FastAPI application entrypoint.
 
@@ -6,7 +7,7 @@ contain business logic itself (see app/services/) or DB details (see
 app/db.py). Run with: uvicorn app.main:app --reload
 """
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
@@ -21,12 +22,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(products.router)
-app.include_router(research.router)
-app.include_router(scripts.router)
-app.include_router(cards.router)
-app.include_router(earnings.router)
-app.include_router(scraper.router)
+api_router = APIRouter(prefix="/api")
+for router in (products.router, research.router, scripts.router, cards.router, earnings.router, scraper.router):
+    api_router.include_router(router)
+app.include_router(api_router)
+
 
 @app.on_event("startup")
 def on_startup():

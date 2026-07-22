@@ -1,5 +1,3 @@
-"""HTTP layer for the Kanban board itself (FR-4.1, FR-4.2, FR-4.3)."""
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
@@ -14,6 +12,15 @@ router = APIRouter(prefix="/cards", tags=["cards"])
 def list_cards(session: Session = Depends(get_session)):
     """FR-4.1: everything the Kanban board needs to render its columns."""
     return session.exec(select(ContentCard)).all()
+
+
+@router.get("/{card_id}", response_model=ContentCard)
+def get_card(card_id: int, session: Session = Depends(get_session)):
+    """FR-4.2: single-card lookup for the click-through detail view."""
+    card = session.get(ContentCard, card_id)
+    if card is None:
+        raise HTTPException(status_code=404, detail=f"No card with id {card_id}")
+    return card
 
 
 @router.post("/{card_id}/status", response_model=ContentCard)

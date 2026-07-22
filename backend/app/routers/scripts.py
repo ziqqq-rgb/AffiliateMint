@@ -1,11 +1,10 @@
-"""HTTP layer for the script-writing stage - Approval Gate 2 (FR-3.5, FR-3.6)."""
-
+# backend/app/routers/scripts.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
 from app.db import get_session
 from app.models import ContentCard, ScriptVariation
-from app.services.pipeline import select_script, start_scripting
+from app.services.pipeline import get_scripts_for_product, select_script, start_scripting
 
 router = APIRouter(prefix="/scripts", tags=["scripts"])
 
@@ -16,6 +15,11 @@ def generate(dossier_id: int, session: Session = Depends(get_session)):
         return start_scripting(session, dossier_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/product/{product_id}", response_model=list[ScriptVariation])
+def list_for_product(product_id: int, session: Session = Depends(get_session)):
+    return get_scripts_for_product(session, product_id)
 
 
 @router.post("/{script_id}/select", response_model=ContentCard)
