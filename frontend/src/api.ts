@@ -1,4 +1,13 @@
-import type { CardStatus, ContentCard, ResearchDossier, ScrapedProduct, ScriptVariation } from "./types";
+// frontend/src/api.ts
+import type {
+  CardStatus,
+  ContentCard,
+  DashboardSummary,
+  EarningsEntry,
+  ResearchDossier,
+  ScrapedProduct,
+  ScriptVariation,
+} from "./types";
 
 const BASE = "/api";
 
@@ -44,4 +53,7 @@ export const api = {
 
   logEarnings: (cardId: number, body: Record<string, unknown>) =>
     request(`/earnings/${cardId}`, { method: "POST", body: JSON.stringify(body) }),
+  listEarningsForCard: (cardId: number) => request<EarningsEntry[]>(`/earnings/card/${cardId}`),
+
+  getDashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
 };

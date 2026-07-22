@@ -58,3 +58,23 @@ export interface ContentCard {
   posted_at: string | null;
   tiktok_video_url: string | null;
 }
+
+export interface EarningsEntry {
+  id: number;
+  card_id: number;
+  date_checked: string;
+  views: number;
+  likes: number;
+  units_sold: number;
+  commission_earned_rm: number;
+  notes: string | null;
+}
+
+export interface DashboardSummary {
+  total_cards: number;
+  cards_by_status: Record<CardStatus, number>;
+  total_commission_rm: number;
+  total_views: number;
+  total_units_sold: number;
+  cards_missing_earnings: number;
+}
