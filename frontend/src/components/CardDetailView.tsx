@@ -21,11 +21,8 @@ export function CardDetailView({ cardId, onBack }: Props) {
   const [dossiers, setDossiers] = useState<ResearchDossier[]>([]);
   const [scripts, setScripts] = useState<ScriptVariation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showTeleprompter, setShowTeleprompter] = useState(false);
+  const [teleprompterScript, setTeleprompterScript] = useState<ScriptVariation | null>(null);
 
-  // Note: this does NOT set `loading` itself - only the initial mount does
-  // (below). That's what lets the pipeline's polling refresh call this
-  // silently, without flashing the full-page spinner every 2 seconds.
   const load = useCallback(async () => {
     const freshCard = await api.getCard(cardId);
     setCard(freshCard);
@@ -58,10 +55,9 @@ export function CardDetailView({ cardId, onBack }: Props) {
   }
 
   const latestDossier = dossiers[0] ?? null;
-  const selectedScript = scripts.find((s) => s.is_selected) ?? null;
 
-  if (showTeleprompter && selectedScript) {
-    return <TeleprompterView script={selectedScript} onClose={() => setShowTeleprompter(false)} />;
+  if (teleprompterScript) {
+    return <TeleprompterView script={teleprompterScript} onClose={() => setTeleprompterScript(null)} />;
   }
 
   return (
@@ -75,11 +71,11 @@ export function CardDetailView({ cardId, onBack }: Props) {
 
       <PipelinePanel card={card} dossier={latestDossier} hasScripts={scripts.length > 0} onChange={load} />
 
-      {scripts.length > 0 && <ScriptPanel scripts={scripts} onChange={load} />}
-
-      {selectedScript && (
-        <WorkflowControls card={card} onOpenTeleprompter={() => setShowTeleprompter(true)} onChange={load} />
+      {scripts.length > 0 && (
+        <ScriptPanel scripts={scripts} onChange={load} onOpenTeleprompter={setTeleprompterScript} />
       )}
+
+      {card.selected_script_id && <WorkflowControls card={card} onChange={load} />}
 
       {card.status === "posted" && <EarningsForm cardId={card.id} />}
       {card.status === "earnings_logged" && (
