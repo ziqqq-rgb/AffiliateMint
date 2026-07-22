@@ -59,7 +59,7 @@ def start_research(session: Session, product_id: int) -> ResearchDossier:
     )
     session.add(dossier)
 
-    card = _get_or_create_card(session, product_id)
+    card = ensure_card_for_product(session, product_id)  # was _get_or_create_card
     card.status = CardStatus.RESEARCHED_PENDING
     session.add(card)
 
@@ -182,3 +182,12 @@ def get_dossiers_for_product(session: Session, product_id: int) -> list[Research
 def get_scripts_for_product(session: Session, product_id: int) -> list[ScriptVariation]:
     statement = select(ScriptVariation).where(ScriptVariation.product_id == product_id)
     return list(session.exec(statement))
+
+def ensure_card_for_product(session: Session, product_id: int) -> ContentCard:
+    card = _card_for_product(session, product_id)
+    if card is None:
+        card = ContentCard(product_id=product_id, status=CardStatus.SCRAPED)
+        session.add(card)
+        session.commit()
+        session.refresh(card)
+    return card

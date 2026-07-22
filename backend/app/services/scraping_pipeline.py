@@ -11,6 +11,7 @@ from typing import Any, Dict
 from sqlmodel import Session, select
 
 from app.models import ScrapedProduct
+from app.services.pipeline import ensure_card_for_product
 from scraper.run import run_hybrid_scraper
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,13 @@ def _item_to_product_kwargs(item: dict) -> dict:
 
 def save_scraped_products(session: Session, items: list[dict]) -> list[ScrapedProduct]:
     """Upserts by tiktok_product_id so re-running a scrape doesn't duplicate
-    rows - it refreshes price/rating/sold count on the existing row instead."""
+    rows - it refreshes price/rating/sold count on the existing row instead.
+
+    Also ensures every saved product has a ContentCard in the "scraped"
+    column (FR-4.1) - without this, a fresh scrape fills ScrapedProduct
+    but leaves the Kanban board with nothing to show, since the board
+    renders cards, not products directly.
+    """
     saved = []
     for item in items:
         kwargs = _item_to_product_kwargs(item)
@@ -62,6 +69,8 @@ def save_scraped_products(session: Session, items: list[dict]) -> list[ScrapedPr
     session.commit()
     for p in saved:
         session.refresh(p)
+        ensure_card_for_product(session, p.id)  # give it a "scraped" card immediately
+
     return saved
 
 
