@@ -1,3 +1,4 @@
+# backend/app/services/pipeline.py
 """
 Core state machine for the product -> dossier -> script -> card pipeline
 (design doc 3.3 "Data Flow"). Each function is one status transition;
@@ -13,8 +14,10 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from agents.memory import remember_edit
 from agents.research_agent import build_research_dossier
 from agents.script_agent import generate_scripts
+from app.db import engine
 from app.models import (
     CardStatus,
     ContentCard,
@@ -30,7 +33,7 @@ def _card_for_product(session: Session, product_id: int) -> Optional[ContentCard
     return session.exec(statement).first()
 
 
-def _get_or_create_card(session: Session, product_id: int) -> ContentCard:
+def ensure_card_for_product(session: Session, product_id: int) -> ContentCard:
     card = _card_for_product(session, product_id)
     if card is None:
         card = ContentCard(product_id=product_id, status=CardStatus.SCRAPED)
@@ -40,7 +43,9 @@ def _get_or_create_card(session: Session, product_id: int) -> ContentCard:
     return card
 
 
-# --- Stage 1: Research (FR-2.1 - FR-2.4) ------------------------------------
+# --- Manual, gated stages -----------------------------------------------
+# Kept for direct API/MCP use. The dashboard no longer calls these on their
+# own - see the one-click flow below instead.
 
 def start_research(session: Session, product_id: int) -> ResearchDossier:
     product = session.get(ScrapedProduct, product_id)
@@ -59,7 +64,7 @@ def start_research(session: Session, product_id: int) -> ResearchDossier:
     )
     session.add(dossier)
 
-    card = ensure_card_for_product(session, product_id)  # was _get_or_create_card
+    card = ensure_card_for_product(session, product_id)
     card.status = CardStatus.RESEARCHED_PENDING
     session.add(card)
 
@@ -74,8 +79,6 @@ def review_research(
     approved: bool,
     rejection_reason: Optional[str] = None,
 ) -> ResearchDossier:
-    """Gate 1. Approving advances the card; rejecting archives the dossier
-    in place (FR-2.4) and leaves the card where it is."""
     dossier = session.get(ResearchDossier, dossier_id)
     if dossier is None:
         raise ValueError(f"No ResearchDossier with id {dossier_id}")
@@ -96,14 +99,12 @@ def review_research(
     return dossier
 
 
-# --- Stage 2: Scripting (FR-3.1 - FR-3.6) -----------------------------------
-
 def start_scripting(session: Session, dossier_id: int) -> list[ScriptVariation]:
     dossier = session.get(ResearchDossier, dossier_id)
     if dossier is None:
         raise ValueError(f"No ResearchDossier with id {dossier_id}")
     if dossier.status != ResearchStatus.APPROVED:
-        raise ValueError("Dossier must be approved before scripting (Gate 1)")
+        raise ValueError("Dossier must be approved before scripting")
 
     variations = []
     for entry in generate_scripts(dossier):
@@ -131,9 +132,28 @@ def start_scripting(session: Session, dossier_id: int) -> list[ScriptVariation]:
     return variations
 
 
+# --- Script editing (point 3) --------------------------------------------
+
+def edit_script(session: Session, script_id: int, fields: dict) -> ScriptVariation:
+    """Lets the operator hand-tune a generated script. The saved edit is also
+    written into Hermes' memory ledger (agents/memory.py) so future scripts
+    lean toward hooks/angles the operator actually kept - the other half of
+    the FR-3.4 feedback loop, alongside earnings."""
+    script = session.get(ScriptVariation, script_id)
+    if script is None:
+        raise ValueError(f"No ScriptVariation with id {script_id}")
+
+    for field, value in fields.items():
+        setattr(script, field, value)
+    session.add(script)
+    session.commit()
+    session.refresh(script)
+
+    remember_edit(script)
+    return script
+
+
 def select_script(session: Session, script_id: int) -> ContentCard:
-    """Gate 2 (FR-3.5/3.6). Selecting a variation makes it the card's
-    single source of truth and moves the card to 'Ready to Film'."""
     script = session.get(ScriptVariation, script_id)
     if script is None:
         raise ValueError(f"No ScriptVariation with id {script_id}")
@@ -153,6 +173,73 @@ def select_script(session: Session, script_id: int) -> ContentCard:
     return card
 
 
+# --- One-click pipeline (point 2) ----------------------------------------
+# Research immediately followed by scripting, no approve/reject gate in
+# between - the operator's only manual step is select_script above.
+
+def start_full_pipeline(session: Session, product_id: int) -> ContentCard:
+    """Flips the `is_generating` lock and returns immediately. Raises if a
+    run is already in progress, so a double-click (or a re-mounted button
+    after navigating back) can never kick off a second run - this is what
+    was producing 6 scripts instead of 3."""
+    card = ensure_card_for_product(session, product_id)
+    if card.is_generating:
+        raise ValueError("Pipeline is already running for this product")
+
+    card.is_generating = True
+    session.add(card)
+    session.commit()
+    session.refresh(card)
+    return card
+
+
+def run_full_pipeline_task(product_id: int) -> None:
+    """Runs as a FastAPI BackgroundTask - opens its own DB session since the
+    request's session closes as soon as the HTTP response goes out, which
+    happens immediately (see start_full_pipeline)."""
+    with Session(engine) as session:
+        card = _card_for_product(session, product_id)
+        if card is None:
+            return
+
+        try:
+            product = session.get(ScrapedProduct, product_id)
+            data = build_research_dossier(product)
+            dossier = ResearchDossier(
+                product_id=product_id,
+                what_it_does=data["what_it_does"],
+                key_benefits=json.dumps(data["key_benefits"]),
+                usp=data["usp"],
+                review_summary_positive=data["review_summary_positive"],
+                review_summary_negative=data["review_summary_negative"],
+                status=ResearchStatus.APPROVED,  # auto-approved - no manual gate in this flow
+            )
+            session.add(dossier)
+            session.commit()
+            session.refresh(dossier)
+
+            for entry in generate_scripts(dossier):
+                session.add(
+                    ScriptVariation(
+                        product_id=product_id,
+                        angle_type=entry["angle_type"],
+                        hook_ms=entry["hook_ms"],
+                        body_ms=entry["body_ms"],
+                        cta_ms=entry["cta_ms"],
+                        caption_ms=entry["caption_ms"],
+                        hashtags=json.dumps(entry["hashtags"]),
+                        visual_notes=entry["visual_notes"],
+                    )
+                )
+
+            card.status = CardStatus.SCRIPTED_PENDING
+            card.used_auto_pipeline = True  # marks it for History (point 4)
+        finally:
+            card.is_generating = False  # always release the lock, success or failure
+            session.add(card)
+            session.commit()
+
+
 def advance_card_status(session: Session, card_id: int, new_status: CardStatus) -> ContentCard:
     card = session.get(ContentCard, card_id)
     if card is None:
@@ -169,8 +256,8 @@ def advance_card_status(session: Session, card_id: int, new_status: CardStatus) 
     session.refresh(card)
     return card
 
+
 def get_dossiers_for_product(session: Session, product_id: int) -> list[ResearchDossier]:
-    """Newest first, includes rejected ones (FR-2.4 - kept for reference)."""
     statement = (
         select(ResearchDossier)
         .where(ResearchDossier.product_id == product_id)
@@ -182,12 +269,3 @@ def get_dossiers_for_product(session: Session, product_id: int) -> list[Research
 def get_scripts_for_product(session: Session, product_id: int) -> list[ScriptVariation]:
     statement = select(ScriptVariation).where(ScriptVariation.product_id == product_id)
     return list(session.exec(statement))
-
-def ensure_card_for_product(session: Session, product_id: int) -> ContentCard:
-    card = _card_for_product(session, product_id)
-    if card is None:
-        card = ContentCard(product_id=product_id, status=CardStatus.SCRAPED)
-        session.add(card)
-        session.commit()
-        session.refresh(card)
-    return card

@@ -3,7 +3,6 @@ import { api } from "../api";
 import type { ContentCard as ContentCardType, ScrapedProduct } from "../types";
 import { ContentCard } from "./ContentCard";
 import { Spinner } from "./Spinner";
-import { STATUS_META, STATUS_ORDER } from "../lib/statusMeta";
 
 interface Props {
   onOpenCard: (cardId: number) => void;
@@ -44,9 +43,16 @@ export function KanbanBoard({ onOpenCard }: Props) {
   return (
     <div className="p-4">
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-gray-500">{cards.length} cards on the board</p>
+        <p className="text-sm text-gray-500">{cards.length} products scraped</p>
         <div className="flex items-center gap-3">
           {scrapeError && <p className="text-xs text-red-600">{scrapeError}</p>}
+          <button
+            disabled
+            title="Coming soon"
+            className="cursor-not-allowed rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-400"
+          >
+            Filter
+          </button>
           <button
             onClick={handleRunScraper}
             disabled={scraping}
@@ -58,20 +64,13 @@ export function KanbanBoard({ onOpenCard }: Props) {
       </div>
 
       {loading ? (
-        <Spinner label="Loading board..." />
+        <Spinner label="Loading products..." />
+      ) : cards.length === 0 ? (
+        <p className="text-sm text-gray-500">No products yet - run the scraper to pull some in.</p>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          {STATUS_ORDER.map((status) => (
-            <div key={status} className="w-64 shrink-0">
-              <h2 className="mb-2 text-sm font-medium text-gray-700">{STATUS_META[status].label}</h2>
-              <div className="flex flex-col gap-2">
-                {cards
-                  .filter((card) => card.status === status)
-                  .map((card) => (
-                    <ContentCard key={card.id} card={card} product={products[card.product_id]} onOpen={onOpenCard} />
-                  ))}
-              </div>
-            </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {cards.map((card) => (
+            <ContentCard key={card.id} card={card} product={products[card.product_id]} onOpen={onOpenCard} />
           ))}
         </div>
       )}

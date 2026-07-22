@@ -1,13 +1,5 @@
 // frontend/src/api.ts
-import type {
-  CardStatus,
-  ContentCard,
-  DashboardSummary,
-  EarningsEntry,
-  ResearchDossier,
-  ScrapedProduct,
-  ScriptVariation,
-} from "./types";
+import type { CardStatus, ContentCard, DashboardSummary, EarningsEntry, ResearchDossier, ScrapedProduct, ScriptVariation } from "./types";
 
 const BASE = "/api";
 
@@ -29,27 +21,18 @@ export const api = {
   listProducts: () => request<ScrapedProduct[]>("/products/"),
   getProduct: (productId: number) => request<ScrapedProduct>(`/products/${productId}`),
   runScraper: (url?: string) =>
-    request<ScrapedProduct[]>("/scraper/scrape", {
-      method: "POST",
-      body: JSON.stringify(url ? { url } : {}),
-    }),
+    request<ScrapedProduct[]>("/scraper/scrape", { method: "POST", body: JSON.stringify(url ? { url } : {}) }),
+  runPipeline: (productId: number) =>
+    request<ContentCard>(`/products/${productId}/run-pipeline`, { method: "POST" }),
 
-  runResearch: (productId: number) =>
-    request<ResearchDossier>(`/research/${productId}/generate`, { method: "POST" }),
-  listResearchForProduct: (productId: number) =>
-    request<ResearchDossier[]>(`/research/product/${productId}`),
-  reviewResearch: (dossierId: number, approved: boolean, rejectionReason?: string) =>
-    request<ResearchDossier>(`/research/${dossierId}/review`, {
-      method: "POST",
-      body: JSON.stringify({ approved, rejection_reason: rejectionReason }),
-    }),
+  listResearchForProduct: (productId: number) => request<ResearchDossier[]>(`/research/product/${productId}`),
 
-  generateScripts: (dossierId: number) =>
-    request<ScriptVariation[]>(`/scripts/${dossierId}/generate`, { method: "POST" }),
-  listScriptsForProduct: (productId: number) =>
-    request<ScriptVariation[]>(`/scripts/product/${productId}`),
-  selectScript: (scriptId: number) =>
-    request<ContentCard>(`/scripts/${scriptId}/select`, { method: "POST" }),
+  listScriptsForProduct: (productId: number) => request<ScriptVariation[]>(`/scripts/product/${productId}`),
+  updateScript: (
+    scriptId: number,
+    body: Partial<Pick<ScriptVariation, "hook_ms" | "body_ms" | "cta_ms" | "caption_ms" | "visual_notes">>,
+  ) => request<ScriptVariation>(`/scripts/${scriptId}`, { method: "PUT", body: JSON.stringify(body) }),
+  selectScript: (scriptId: number) => request<ContentCard>(`/scripts/${scriptId}/select`, { method: "POST" }),
 
   logEarnings: (cardId: number, body: Record<string, unknown>) =>
     request(`/earnings/${cardId}`, { method: "POST", body: JSON.stringify(body) }),

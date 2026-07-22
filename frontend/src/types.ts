@@ -78,3 +78,15 @@ export interface DashboardSummary {
   total_units_sold: number;
   cards_missing_earnings: number;
 }
+
+export interface ContentCard {
+  id: number;
+  product_id: number;
+  selected_script_id: number | null;
+  status: CardStatus;
+  filmed_at: string | null;
+  posted_at: string | null;
+  tiktok_video_url: string | null;
+  is_generating: boolean;
+  used_auto_pipeline: boolean;
+}

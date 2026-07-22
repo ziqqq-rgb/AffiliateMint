@@ -114,3 +114,19 @@ class EarningsEntry(SQLModel, table=True):
     units_sold: int = 0
     commission_earned_rm: float = 0.0
     notes: Optional[str] = None
+
+class ContentCard(SQLModel, table=True):
+    """The Kanban card tracking one product through the whole pipeline. FR-4.1."""
+
+    __table_args__ = {"extend_existing": True}
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: int = Field(foreign_key="scrapedproduct.id")
+    selected_script_id: Optional[int] = Field(default=None, foreign_key="scriptvariation.id")
+    status: CardStatus = CardStatus.SCRAPED
+    filmed_at: Optional[datetime] = None
+    posted_at: Optional[datetime] = None
+    tiktok_video_url: Optional[str] = None  # entered manually - posting itself stays out of scope
+
+    is_generating: bool = Field(default=False)
+    used_auto_pipeline: bool = Field(default=False)

@@ -76,3 +76,16 @@ def search_similar_performance(dossier, limit: int = 3) -> str:
         return ""
     lines = [f'- {angle}: "{hook}" earned RM{rm}' for angle, hook, rm in rows]
     return "\n".join(lines)
+
+def remember_edit(script) -> None:
+    """Logs a manually-edited script into the same ledger remember_performance
+    uses, tagged distinctly - lets a future prompt favor hooks the operator
+    actually kept/rewrote, not just ones that earned commission (point 3)."""
+    conn = _get_connection()
+    conn.execute(
+        "INSERT INTO memory (angle_type, hook_ms, product_title, commission_earned_rm, notes) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (script.angle_type, script.hook_ms, "", "0", "manually edited by operator"),
+    )
+    conn.commit()
+    conn.close()
