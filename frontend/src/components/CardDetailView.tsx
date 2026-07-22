@@ -6,9 +6,7 @@ import { StatusBadge } from "./StatusBadge";
 import { ProductSummary } from "./ProductSummary";
 import { PipelinePanel } from "./PipelinePanel";
 import { ScriptPanel } from "./ScriptPanel";
-import { WorkflowControls } from "./WorkflowControls";
 import { TeleprompterView } from "./TeleprompterView";
-import { EarningsForm } from "./EarningsForm";
 
 interface Props {
   cardId: number;
@@ -73,15 +71,6 @@ export function CardDetailView({ cardId, onBack }: Props) {
 
       {scripts.length > 0 && (
         <ScriptPanel scripts={scripts} onChange={load} onOpenTeleprompter={setTeleprompterScript} />
-      )}
-
-      {card.selected_script_id && <WorkflowControls card={card} onChange={load} />}
-
-      {card.status === "posted" && <EarningsForm cardId={card.id} />}
-      {card.status === "earnings_logged" && (
-        <p className="rounded-lg bg-violet-50 p-4 text-sm text-violet-800">
-          Earnings logged for this card. Nice work.
-        </p>
       )}
     </div>
   );

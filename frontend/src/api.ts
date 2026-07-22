@@ -1,5 +1,4 @@
-// frontend/src/api.ts
-import type { CardStatus, ContentCard, DashboardSummary, EarningsEntry, ResearchDossier, ScrapedProduct, ScriptVariation } from "./types";
+import type { CardStatus, ContentCard, ResearchDossier, ScrapedProduct, ScriptVariation } from "./types";
 
 const BASE = "/api";
 
@@ -15,8 +14,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   listCards: () => request<ContentCard[]>("/cards/"),
   getCard: (cardId: number) => request<ContentCard>(`/cards/${cardId}`),
-  setCardStatus: (cardId: number, status: CardStatus) =>
-    request<ContentCard>(`/cards/${cardId}/status?new_status=${status}`, { method: "POST" }),
 
   listProducts: () => request<ScrapedProduct[]>("/products/"),
   getProduct: (productId: number) => request<ScrapedProduct>(`/products/${productId}`),
@@ -32,11 +29,4 @@ export const api = {
     scriptId: number,
     body: Partial<Pick<ScriptVariation, "hook_ms" | "body_ms" | "cta_ms" | "caption_ms" | "visual_notes">>,
   ) => request<ScriptVariation>(`/scripts/${scriptId}`, { method: "PUT", body: JSON.stringify(body) }),
-  selectScript: (scriptId: number) => request<ContentCard>(`/scripts/${scriptId}/select`, { method: "POST" }),
-
-  logEarnings: (cardId: number, body: Record<string, unknown>) =>
-    request(`/earnings/${cardId}`, { method: "POST", body: JSON.stringify(body) }),
-  listEarningsForCard: (cardId: number) => request<EarningsEntry[]>(`/earnings/card/${cardId}`),
-
-  getDashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
 };

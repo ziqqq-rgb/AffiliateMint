@@ -30,21 +30,10 @@ export function ScriptPanel({ scripts, onChange, onOpenTeleprompter }: Props) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<DraftFields | null>(null);
-  const alreadySelected = scripts.some((s) => s.is_selected);
 
   function startEdit(script: ScriptVariation) {
     setEditingId(script.id);
     setDraft(toDraft(script));
-  }
-
-  async function handleSelect(scriptId: number) {
-    setBusyId(scriptId);
-    try {
-      await api.selectScript(scriptId);
-      onChange();
-    } finally {
-      setBusyId(null);
-    }
   }
 
   async function handleSaveEdit(scriptId: number) {
@@ -113,15 +102,6 @@ export function ScriptPanel({ scripts, onChange, onOpenTeleprompter }: Props) {
                   <p className="text-base font-medium text-gray-900">{script.hook_ms}</p>
                   <p className="mt-2 text-gray-600">{script.body_ms}</p>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {!alreadySelected && (
-                      <button
-                        onClick={() => handleSelect(script.id)}
-                        disabled={busyId === script.id}
-                        className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
-                      >
-                        {busyId === script.id ? "Selecting..." : "Use this script"}
-                      </button>
-                    )}
                     <button
                       onClick={() => startEdit(script)}
                       className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
