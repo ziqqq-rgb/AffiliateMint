@@ -8,16 +8,18 @@ export function ProductSummary({ product }: { product: ScrapedProduct }) {
         <img src={product.image_url} alt={product.title} className="h-20 w-20 shrink-0 rounded-lg object-cover" />
       )}
       <div className="min-w-0">
-        
+        {/* FIXED: Added the opening <a> tag properly */}
+        <a
           href={product.product_url}
           target="_blank"
           rel="noreferrer"
-          className="text-sm font-semibold text-gray-900 hover:underline"
+          className="block text-sm font-semibold text-gray-900 hover:underline truncate"
         >
           {product.title}
-        </>
+        </a>
+        
         <p className="mt-1 text-sm text-gray-600">
-          {formatRM(product.price_rm)} &middot; {product.review_score.toFixed(1)}&#9733; ({product.review_count})
+          {formatRM(product.price_rm)} &middot; {product.review_score.toFixed(1)}★ ({product.review_count})
           &middot; {product.units_sold.toLocaleString()} sold
         </p>
         <p className="mt-1 text-xs text-gray-400">{product.shop_name}</p>
