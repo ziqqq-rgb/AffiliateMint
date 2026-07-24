@@ -49,16 +49,6 @@ export interface ScriptVariation {
   is_selected: boolean;
 }
 
-export interface ContentCard {
-  id: number;
-  product_id: number;
-  selected_script_id: number | null;
-  status: CardStatus;
-  filmed_at: string | null;
-  posted_at: string | null;
-  tiktok_video_url: string | null;
-}
-
 export interface EarningsEntry {
   id: number;
   card_id: number;
@@ -89,6 +79,7 @@ export interface ContentCard {
   tiktok_video_url: string | null;
   is_generating: boolean;
   used_auto_pipeline: boolean;
+  added_to_progress_at: string | null;
 }
 
 export interface ScrapeFilters {

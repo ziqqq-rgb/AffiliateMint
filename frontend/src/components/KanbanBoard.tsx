@@ -2,29 +2,28 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { ContentCard as ContentCardType, ScrapedProduct, ScrapeFilters } from "../types";
 import { EMPTY_FILTERS } from "../types";
-import { ContentCard } from "./ContentCard";
+import { BoardProductCard } from "./BoardProductCard";
 import { FilterPanel } from "./FilterPanel";
 import { Spinner } from "./Spinner";
 
-interface Props {
-  onOpenCard: (cardId: number) => void;
-}
-
 const SCRAPE_URL = "https://shop.tiktok.com/my";
 
-export function KanbanBoard({ onOpenCard }: Props) {
+export function KanbanBoard() {
   const [cards, setCards] = useState<ContentCardType[]>([]);
   const [products, setProducts] = useState<Record<number, ScrapedProduct>>({});
   const [loading, setLoading] = useState(true);
   const [scraping, setScraping] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [addingId, setAddingId] = useState<number | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ScrapeFilters>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
 
   async function loadBoard() {
     setLoading(true);
-    const [cardList, productList] = await Promise.all([api.listCards(), api.listProducts()]);
+    // Board only shows products nobody has picked yet - once chosen they
+    // move to the Progress tab and drop out of this list.
+    const [cardList, productList] = await Promise.all([api.listCards(false), api.listProducts()]);
     setCards(cardList);
     setProducts(Object.fromEntries(productList.map((p) => [p.id, p])));
     setLoading(false);
@@ -49,7 +48,7 @@ export function KanbanBoard({ onOpenCard }: Props) {
 
   async function handleClearScrape() {
     const confirmed = window.confirm(
-      "Clear un-reviewed scraped products? Cards already in research, scripting, or history are kept.",
+      "Clear un-reviewed scraped products? Anything already added to Progress is kept.",
     );
     if (!confirmed) return;
 
@@ -65,12 +64,22 @@ export function KanbanBoard({ onOpenCard }: Props) {
     }
   }
 
+  async function handleAddToProgress(cardId: number) {
+    setAddingId(cardId);
+    try {
+      await api.addCardToProgress(cardId);
+      setCards((prev) => prev.filter((c) => c.id !== cardId)); // gone from Board immediately
+    } finally {
+      setAddingId(null);
+    }
+  }
+
   const activeFilterCount = Object.values(filters).filter((v) => v !== null && v !== false).length;
 
   return (
     <div className="p-4">
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-gray-500">{cards.length} products scraped</p>
+        <p className="text-sm text-gray-500">{cards.length} product{cards.length === 1 ? "" : "s"} awaiting review</p>
         <div className="flex items-center gap-3">
           {scrapeError && <p className="text-xs text-red-600">{scrapeError}</p>}
           <button
@@ -105,11 +114,17 @@ export function KanbanBoard({ onOpenCard }: Props) {
       {loading ? (
         <Spinner label="Loading products..." />
       ) : cards.length === 0 ? (
-        <p className="text-sm text-gray-500">No products yet - run the scraper to pull some in.</p>
+        <p className="text-sm text-gray-500">No new products to review - run the scraper to pull some in.</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {cards.map((card) => (
-            <ContentCard key={card.id} card={card} product={products[card.product_id]} onOpen={onOpenCard} />
+            <BoardProductCard
+              key={card.id}
+              card={card}
+              product={products[card.product_id]}
+              busy={addingId === card.id}
+              onAddToProgress={handleAddToProgress}
+            />
           ))}
         </div>
       )}

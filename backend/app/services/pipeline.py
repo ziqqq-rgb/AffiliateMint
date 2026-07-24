@@ -271,22 +271,17 @@ def get_scripts_for_product(session: Session, product_id: int) -> list[ScriptVar
     return list(session.exec(statement))
 
 def clear_untouched_products(session: Session) -> int:
-    """Deletes ScrapedProduct + ContentCard rows for cards still stuck at
-    SCRAPED status - i.e. never opened, never researched. This is what
-    the dashboard's "Clear scrape" button calls.
+    """Deletes ScrapedProduct + ContentCard rows for cards nobody has
+    chosen to work on yet (added_to_progress_at is still null) - this is
+    what the Board's "Clear scrape" button calls.
 
-    save_scraped_products() already upserts by tiktok_product_id, so
-    re-scraping the same item never duplicates it - but genuinely new,
-    untouched products still pile up on the board with nothing reviewing
-    them. This cleans those out.
-
-    Cards past SCRAPED (research started, scripted, filmed, posted,
-    earnings logged) are never touched here - deleting them would also
-    orphan their ResearchDossier/ScriptVariation/EarningsEntry rows,
-    which is exactly the data History depends on.
+    Anything already added to Progress is untouched here, no matter what
+    pipeline stage it's at (scraped, researched, scripted, posted...) -
+    deleting those would also orphan their ResearchDossier/ScriptVariation/
+    EarningsEntry rows.
     """
     untouched_cards = session.exec(
-        select(ContentCard).where(ContentCard.status == CardStatus.SCRAPED)
+        select(ContentCard).where(ContentCard.added_to_progress_at.is_(None))
     ).all()
 
     product_ids = [c.product_id for c in untouched_cards]
@@ -304,3 +299,17 @@ def clear_untouched_products(session: Session) -> int:
 
     session.commit()
     return count
+
+def add_card_to_progress(session: Session, card_id: int) -> ContentCard:
+    """Moves a card from Board to Progress. Idempotent - calling it twice
+    doesn't reset the timestamp, so "date added" stays accurate."""
+    card = session.get(ContentCard, card_id)
+    if card is None:
+        raise ValueError(f"No ContentCard with id {card_id}")
+
+    if card.added_to_progress_at is None:
+        card.added_to_progress_at = datetime.utcnow()
+        session.add(card)
+        session.commit()
+        session.refresh(card)
+    return card

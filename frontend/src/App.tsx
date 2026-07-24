@@ -2,14 +2,14 @@ import { useState } from "react";
 import { KanbanBoard } from "./components/KanbanBoard";
 import { CardDetailView } from "./components/CardDetailView";
 import { Dashboard } from "./components/Dashboard";
-import { HistoryView } from "./components/HistoryView";
+import { ProgressView } from "./components/ProgressView";
 
-type Tab = "board" | "dashboard" | "history";
+type Tab = "board" | "dashboard" | "progress";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "board", label: "Board" },
   { id: "dashboard", label: "Dashboard" },
-  { id: "history", label: "History" },
+  { id: "progress", label: "Progress" },
 ];
 
 export default function App() {
@@ -40,11 +40,11 @@ export default function App() {
       {openCardId !== null ? (
         <CardDetailView cardId={openCardId} onBack={() => setOpenCardId(null)} />
       ) : tab === "board" ? (
-        <KanbanBoard onOpenCard={setOpenCardId} />
+        <KanbanBoard />
       ) : tab === "dashboard" ? (
         <Dashboard />
       ) : (
-        <HistoryView onOpenCard={setOpenCardId} />
+        <ProgressView onOpenCard={setOpenCardId} />
       )}
     </div>
   );

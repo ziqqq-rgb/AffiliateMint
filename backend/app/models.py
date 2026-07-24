@@ -92,18 +92,19 @@ class ScriptVariation(SQLModel, table=True):
 
 
 class ContentCard(SQLModel, table=True):
-    """The Kanban card tracking one product through the whole pipeline. FR-4.1."""
-
     id: Optional[int] = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="scrapedproduct.id")
     selected_script_id: Optional[int] = Field(default=None, foreign_key="scriptvariation.id")
     status: CardStatus = CardStatus.SCRAPED
     filmed_at: Optional[datetime] = None
     posted_at: Optional[datetime] = None
-    tiktok_video_url: Optional[str] = None  
+    tiktok_video_url: Optional[str] = None
 
     is_generating: bool = Field(default=False)
     used_auto_pipeline: bool = Field(default=False)
+
+    added_to_progress_at: Optional[datetime] = None
+
 
 class EarningsEntry(SQLModel, table=True):
     """Manually typed-in performance numbers for one posted card. FR-4.4."""
