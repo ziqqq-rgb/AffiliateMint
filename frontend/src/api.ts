@@ -1,4 +1,4 @@
-import type { CardStatus, ContentCard, ResearchDossier, ScrapedProduct, ScriptVariation } from "./types";
+import type { CardStatus, ContentCard, ResearchDossier, ScrapedProduct, ScrapeFilters, ScriptVariation } from "./types";
 
 const BASE = "/api";
 
@@ -17,12 +17,17 @@ export const api = {
 
   listProducts: () => request<ScrapedProduct[]>("/products/"),
   getProduct: (productId: number) => request<ScrapedProduct>(`/products/${productId}`),
-  runScraper: (url?: string) =>
-    request<ScrapedProduct[]>("/scraper/scrape", { method: "POST", body: JSON.stringify(url ? { url } : {}) }),
+  runScraper: (url: string, filters: ScrapeFilters) =>
+    request<ScrapedProduct[]>("/scraper/scrape", {
+      method: "POST",
+      body: JSON.stringify({ url, ...filters }),
+    }),
   runPipeline: (productId: number) =>
     request<ContentCard>(`/products/${productId}/run-pipeline`, { method: "POST" }),
 
   listResearchForProduct: (productId: number) => request<ResearchDossier[]>(`/research/product/${productId}`),
+  clearScrapedProducts: () =>
+  request<{ deleted: number }>("/scraper/clear", { method: "DELETE" }),
 
   listScriptsForProduct: (productId: number) => request<ScriptVariation[]>(`/scripts/product/${productId}`),
   updateScript: (

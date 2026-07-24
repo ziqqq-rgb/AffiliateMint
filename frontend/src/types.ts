@@ -90,3 +90,19 @@ export interface ContentCard {
   is_generating: boolean;
   used_auto_pipeline: boolean;
 }
+
+export interface ScrapeFilters {
+  category: string | null;
+  min_rating: number | null;
+  sort_by_sold: boolean;
+  min_price: number | null;
+  max_price: number | null;
+}
+
+export const EMPTY_FILTERS: ScrapeFilters = {
+  category: null,
+  min_rating: null,
+  sort_by_sold: false,
+  min_price: null,
+  max_price: null,
+};

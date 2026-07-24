@@ -8,6 +8,7 @@ import time
 import json
 from seleniumbase import Driver
 from playwright.sync_api import sync_playwright
+from scraper.navigation import apply_shop_filters
 from scraper.browser import StealthBrowser
 from scraper.capture_session import SessionManager
 from scraper.session_store import load_cookies
@@ -144,6 +145,16 @@ def run_hybrid_scraper(target_url, category=None, min_rating=None, sort_by_sold=
                         pass
 
             page.on("response", handle_response)
+            print("[+] Deep JSON Wiretap Extractor ACTIVE!")
+
+            page = apply_shop_filters(
+                page,
+                category=category,
+                min_rating=min_rating,
+                sort_by_sold=sort_by_sold,
+                min_price=min_price,
+                max_price=max_price,
+            )
             print("[+] Deep JSON Wiretap Extractor ACTIVE!")
 
             # --- DOM SCRAPER FALLBACK ---

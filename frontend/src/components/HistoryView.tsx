@@ -23,7 +23,7 @@ export function HistoryView({ onOpenCard }: Props) {
       setLoading(true);
       const [cards, products] = await Promise.all([api.listCards(), api.listProducts()]);
       const productById = Object.fromEntries(products.map((p) => [p.id, p]));
-      const completed = cards.filter((c) => c.status === "earnings_logged" && c.used_auto_pipeline);
+      const completed = cards.filter((c) => c.status === "earnings_logged");
 
       const withEarnings = await Promise.all(
         completed.map(async (card) => {

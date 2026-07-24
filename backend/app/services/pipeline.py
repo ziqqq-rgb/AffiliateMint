@@ -269,3 +269,38 @@ def get_dossiers_for_product(session: Session, product_id: int) -> list[Research
 def get_scripts_for_product(session: Session, product_id: int) -> list[ScriptVariation]:
     statement = select(ScriptVariation).where(ScriptVariation.product_id == product_id)
     return list(session.exec(statement))
+
+def clear_untouched_products(session: Session) -> int:
+    """Deletes ScrapedProduct + ContentCard rows for cards still stuck at
+    SCRAPED status - i.e. never opened, never researched. This is what
+    the dashboard's "Clear scrape" button calls.
+
+    save_scraped_products() already upserts by tiktok_product_id, so
+    re-scraping the same item never duplicates it - but genuinely new,
+    untouched products still pile up on the board with nothing reviewing
+    them. This cleans those out.
+
+    Cards past SCRAPED (research started, scripted, filmed, posted,
+    earnings logged) are never touched here - deleting them would also
+    orphan their ResearchDossier/ScriptVariation/EarningsEntry rows,
+    which is exactly the data History depends on.
+    """
+    untouched_cards = session.exec(
+        select(ContentCard).where(ContentCard.status == CardStatus.SCRAPED)
+    ).all()
+
+    product_ids = [c.product_id for c in untouched_cards]
+    count = len(untouched_cards)
+
+    for card in untouched_cards:
+        session.delete(card)
+
+    if product_ids:
+        products = session.exec(
+            select(ScrapedProduct).where(ScrapedProduct.id.in_(product_ids))
+        ).all()
+        for product in products:
+            session.delete(product)
+
+    session.commit()
+    return count
