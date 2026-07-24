@@ -1,0 +1,78 @@
+[
+  {
+    "domain": "shop.tiktok.com",
+    "httpOnly": true,
+    "name": "dkms-token",
+    "path": "/",
+    "sameSite": "Strict",
+    "secure": true,
+    "value": "MIGPBAxzj3b1swcnJGLtbTcEbePX6pCvH0QdcLW21L7kEJvU/OLZ94rpMhRAIea58nDEDFV0a+uSeymwMUAfPaHsjw9DCcF6ucUmTNHQgYmhu7NcAkftNMXOdQxnVOImWF3FDXDBTYAClK4PPze7f6fffo+p/X/TvYRXcXTOwqEEEBk8mjIykDvHfOmjnKB/luU="
+  },
+  {
+    "domain": "shop.tiktok.com",
+    "httpOnly": false,
+    "name": "__ac_referer",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "__ac_blank"
+  },
+  {
+    "domain": ".tiktok.com",
+    "expiry": 1785732210,
+    "httpOnly": false,
+    "name": "msToken",
+    "path": "/",
+    "sameSite": "None",
+    "secure": true,
+    "value": "r_zFL2ZdzQi_pNWvoQ_QxOFab3LeuXfz10wLQd85aUQx-Y6qxf73-_qpcMyI1KTFB1H9-TF09iDLJIFoLGs-R1uqgGqQWLzTDRNn6Inp1HHfanzV4hXOBC9muUt2JS0I5glhTh56tQuCvQulM_1iWfA="
+  },
+  {
+    "domain": "shop.tiktok.com",
+    "expiry": 1792644210,
+    "httpOnly": false,
+    "name": "msToken",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "r_zFL2ZdzQi_pNWvoQ_QxOFab3LeuXfz10wLQd85aUQx-Y6qxf73-_qpcMyI1KTFB1H9-TF09iDLJIFoLGs-R1uqgGqQWLzTDRNn6Inp1HHfanzV4hXOBC9muUt2JS0I5glhTh56tQuCvQulM_1iWfA="
+  },
+  {
+    "domain": "shop.tiktok.com",
+    "expiry": 1816404205,
+    "httpOnly": true,
+    "name": "ttwid",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": true,
+    "value": "1%7Cg2sNmFhhpxEkbxLni7xcmjEe-SBtMxgpOZVrm9KTcUg%7C1784868185%7Cb25bb6547e8d2482bbe8455e2d9890585729fd27d28c069e3ce5a50d4b7664c9"
+  },
+  {
+    "domain": "shop.tiktok.com",
+    "httpOnly": false,
+    "name": "s_v_web_id",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "verify_mrygffcj_lkw58Ood_0CS6_4bwz_8tlb_cMEsFLbxBViR"
+  },
+  {
+    "domain": "shop.tiktok.com",
+    "httpOnly": false,
+    "name": "dkms-type",
+    "path": "/",
+    "sameSite": "Strict",
+    "secure": true,
+    "value": "0"
+  },
+  {
+    "domain": ".tiktok.com",
+    "expiry": 1816404209,
+    "httpOnly": false,
+    "name": "oec_lucifer",
+    "path": "/",
+    "sameSite": "Lax",
+    "secure": false,
+    "value": "AQEBAKn7iQLtf8SFG4TBJA/mY1EtRmqOotW2hq/KuzkMJUi134Z2oBSBzkiw/01BSqWanVeDIIZRsX3JaSMK7pgqRb6yIEbMwA=="
+  }
+]

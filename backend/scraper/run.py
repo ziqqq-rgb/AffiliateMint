@@ -8,17 +8,20 @@ import time
 import json
 from seleniumbase import Driver
 from playwright.sync_api import sync_playwright
+from scraper.browser import StealthBrowser
+from scraper.capture_session import SessionManager
+from scraper.session_store import load_cookies
 
 
-def run_hybrid_scraper(target_url: str):
+
+def run_hybrid_scraper(target_url, category=None, min_rating=None, sort_by_sold=False, min_price=None, max_price=None):
     print("--- Starting Advanced Hybrid Affiliate Scraper ---")
-    
-    # 1. SELENIUMBASE DEFENSE: Launch UC Mode
     print("[+] Launching SeleniumBase UC Mode to bypass anti-bot defenses...")
-    driver = Driver(uc=True, incognito=True, headless=False)
-    
+    driver = Driver(uc=True, incognito=False, headless=False)
+
     harvested_items = []
     seen_ids_or_titles = set()
+
 
     def add_product(item_data: dict, source: str = "WIRETAP"):
         # Use product_id as primary deduplication key, fallback to title
@@ -40,8 +43,8 @@ def run_hybrid_scraper(target_url: str):
         print(f"  [{source} #{len(harvested_items)}] -> {title_short}... | RM {price}{disc_str} | Sold: {sold}")
 
     try:
-        print(f"[+] Navigating to target -> {target_url}")
-        driver.get(target_url)
+        print(f"[+] Loading session + navigating to target -> {target_url}")
+        load_cookies(driver, target_url, "affiliate_session.txt")
         time.sleep(3.5)
 
         # =================================================================
