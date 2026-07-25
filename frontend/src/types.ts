@@ -102,3 +102,12 @@ export const EMPTY_FILTERS: ScrapeFilters = {
   min_price: null,
   max_price: null,
 };
+
+export interface ThreadsPost {
+  id: number;
+  product_id: number;
+  post_text: string;
+  is_selected: boolean;
+  posted_at: string | null;
+  threads_post_id: string | null;
+}

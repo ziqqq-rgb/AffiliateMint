@@ -7,6 +7,7 @@ import type {
   ScrapedProduct,
   ScrapeFilters,
   ScriptVariation,
+  ThreadsPost,
 } from "./types";
 
 const BASE = "/api";
@@ -56,6 +57,12 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ min_commission_rate: minCommissionRate ?? null }),
   }),
+
+  listThreadsForProduct: (productId: number) => request<ThreadsPost[]>(`/threads/product/${productId}`),
+  selectThreadsPost: (postId: number) =>
+    request<ContentCard>(`/threads/posts/${postId}/select`, { method: "POST" }),
+  publishThreadsPost: (cardId: number) =>
+    request<ContentCard>(`/threads/${cardId}/publish`, { method: "POST" }),
 
   // History tab - was missing, which broke the History page too
   listEarningsForCard: (cardId: number) => request<EarningsEntry[]>(`/earnings/card/${cardId}`),

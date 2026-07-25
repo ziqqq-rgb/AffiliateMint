@@ -8,6 +8,8 @@ from agents.threads_agent import generate_threads_posts
 from app.models import CardStatus, ContentCard, ResearchDossier, ScrapedProduct, ThreadsPost
 from app.services.pipeline import _card_for_product
 from app.services.threads_client import publish_text_post
+from app.services.affiliate_link import append_buy_link
+
 
 
 def start_threads_scripting(session: Session, dossier_id: int) -> list[ThreadsPost]:
@@ -15,7 +17,11 @@ def start_threads_scripting(session: Session, dossier_id: int) -> list[ThreadsPo
     if dossier is None:
         raise ValueError(f"No ResearchDossier with id {dossier_id}")
 
-    posts = [ThreadsPost(product_id=dossier.product_id, post_text=t) for t in generate_threads_posts(dossier)]
+    product = session.get(ScrapedProduct, dossier.product_id)
+    posts = [
+        ThreadsPost(product_id=dossier.product_id, post_text=append_buy_link(text, product))
+        for text in generate_threads_posts(dossier)
+    ]
     session.add_all(posts)
 
     card = _card_for_product(session, dossier.product_id)
@@ -27,6 +33,7 @@ def start_threads_scripting(session: Session, dossier_id: int) -> list[ThreadsPo
     for post in posts:
         session.refresh(post)
     return posts
+
 
 
 def select_threads_post(session: Session, post_id: int) -> ContentCard:
@@ -46,22 +53,18 @@ def select_threads_post(session: Session, post_id: int) -> ContentCard:
 
 
 def publish_threads_post(session: Session, card_id: int) -> ContentCard:
-    """The actual auto-post step — deliberately a separate manual
-    trigger rather than automatic-on-select, matching the two existing
-    human approval gates in the pipeline."""
     card = session.get(ContentCard, card_id)
     if card is None:
         raise ValueError(f"No ContentCard with id {card_id}")
 
-    product = session.get(ScrapedProduct, card.product_id)
     post = session.exec(
         select(ThreadsPost).where(ThreadsPost.product_id == card.product_id, ThreadsPost.is_selected == True)
     ).first()
     if post is None:
         raise ValueError("No selected Threads post for this card")
 
-    full_text = f"{post.post_text}\n\n{product.affiliate_link}"
-    post.threads_post_id = publish_text_post(full_text)
+    # post_text already has the buy link - no more double-appending here
+    post.threads_post_id = publish_text_post(post.post_text)
     post.posted_at = datetime.utcnow()
     session.add(post)
 
@@ -72,3 +75,8 @@ def publish_threads_post(session: Session, card_id: int) -> ContentCard:
     session.commit()
     session.refresh(card)
     return card
+
+def get_threads_posts_for_product(session: Session, product_id: int) -> list[ThreadsPost]:
+    """Feeds the card-detail view, same role as pipeline.get_scripts_for_product."""
+    statement = select(ThreadsPost).where(ThreadsPost.product_id == product_id)
+    return list(session.exec(statement))

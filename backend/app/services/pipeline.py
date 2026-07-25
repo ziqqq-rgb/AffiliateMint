@@ -27,16 +27,13 @@ from app.models import (
     ScrapedProduct,
     ScriptVariation,
 )
+from app.services.affiliate_link import append_buy_link
+from agents.threads_agent import generate_threads_posts
+from app.models import ThreadsPost 
 
 def _append_shopee_buy_link(entry: dict, product: ScrapedProduct) -> dict:
-    """Shopee has no native product-tagging on posts like TikTok Shop
-    does - the caption itself has to carry the trackable link so it
-    survives into the teleprompter's "copy caption" button. No-op for
-    TikTok, or when the scraper never captured a link for this item."""
-    if product.platform != Platform.SHOPEE or not product.affiliate_link:
-        return entry
     entry = dict(entry)
-    entry["caption_ms"] = f"{entry['caption_ms']}\n\nBeli di sini: {product.affiliate_link}"
+    entry["caption_ms"] = append_buy_link(entry["caption_ms"], product)
     return entry
 
 
@@ -187,10 +184,30 @@ def select_script(session: Session, script_id: int) -> ContentCard:
     session.refresh(card)
     return card
 
+def _generate_and_save_scripts(session: Session, dossier: ResearchDossier, product: ScrapedProduct) -> None:
+    """TikTok Shop path: 3 video script angles."""
+    for raw_entry in generate_scripts(dossier):
+        entry = _append_shopee_buy_link(raw_entry, product)
+        session.add(
+            ScriptVariation(
+                product_id=product.id,
+                angle_type=entry["angle_type"],
+                hook_ms=entry["hook_ms"],
+                body_ms=entry["body_ms"],
+                cta_ms=entry["cta_ms"],
+                caption_ms=entry["caption_ms"],
+                hashtags=json.dumps(entry["hashtags"]),
+                visual_notes=entry["visual_notes"],
+            )
+        )
 
-# --- One-click pipeline (point 2) ----------------------------------------
-# Research immediately followed by scripting, no approve/reject gate in
-# between - the operator's only manual step is select_script above.
+
+def _generate_and_save_threads_posts(session: Session, dossier: ResearchDossier, product: ScrapedProduct) -> None:
+    """Shopee path: short Threads text posts, buy link baked straight
+    into the post text since that's what gets published as-is."""
+    for text in generate_threads_posts(dossier):
+        session.add(ThreadsPost(product_id=product.id, post_text=append_buy_link(text, product)))
+
 
 def start_full_pipeline(session: Session, product_id: int) -> ContentCard:
     """Flips the `is_generating` lock and returns immediately. Raises if a
@@ -230,20 +247,10 @@ def run_full_pipeline_task(product_id: int) -> None:
             session.commit()
             session.refresh(dossier)
 
-            for raw_entry in generate_scripts(dossier):
-                entry = _append_shopee_buy_link(raw_entry, product)
-                session.add(
-                    ScriptVariation(
-                        product_id=product_id,
-                        angle_type=entry["angle_type"],
-                        hook_ms=entry["hook_ms"],
-                        body_ms=entry["body_ms"],
-                        cta_ms=entry["cta_ms"],
-                        caption_ms=entry["caption_ms"],
-                        hashtags=json.dumps(entry["hashtags"]),
-                        visual_notes=entry["visual_notes"],
-                    )
-                )
+            if product.platform == Platform.SHOPEE:
+                _generate_and_save_threads_posts(session, dossier, product)
+            else:
+                _generate_and_save_scripts(session, dossier, product)
 
             card.status = CardStatus.SCRIPTED_PENDING
             card.used_auto_pipeline = True

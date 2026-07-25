@@ -3,7 +3,12 @@ from sqlmodel import Session
 
 from app.db import get_session
 from app.models import ContentCard, ThreadsPost
-from app.services.threads_pipeline import publish_threads_post, select_threads_post, start_threads_scripting
+from app.services.threads_pipeline import (
+    get_threads_posts_for_product,
+    publish_threads_post,
+    select_threads_post,
+    start_threads_scripting,
+)
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
@@ -30,3 +35,7 @@ def publish(card_id: int, session: Session = Depends(get_session)):
         return publish_threads_post(session, card_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+@router.get("/product/{product_id}", response_model=list[ThreadsPost])
+def list_for_product(product_id: int, session: Session = Depends(get_session)):
+    return get_threads_posts_for_product(session, product_id)

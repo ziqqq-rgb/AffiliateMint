@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import type { ContentCard, ResearchDossier, ScrapedProduct, ScriptVariation } from "../types";
+import type { ContentCard, ResearchDossier, ScrapedProduct, ScriptVariation, ThreadsPost } from "../types";
 import { Spinner } from "./Spinner";
-import { StatusBadge } from "./StatusBadge";
 import { ProductSummary } from "./ProductSummary";
 import { PipelinePanel } from "./PipelinePanel";
 import { ScriptPanel } from "./ScriptPanel";
+import { ThreadsPanel } from "./ThreadsPanel";
 import { TeleprompterView } from "./TeleprompterView";
 
 interface Props {
@@ -18,21 +18,24 @@ export function CardDetailView({ cardId, onBack }: Props) {
   const [product, setProduct] = useState<ScrapedProduct | null>(null);
   const [dossiers, setDossiers] = useState<ResearchDossier[]>([]);
   const [scripts, setScripts] = useState<ScriptVariation[]>([]);
+  const [threadsPosts, setThreadsPosts] = useState<ThreadsPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [teleprompterScript, setTeleprompterScript] = useState<ScriptVariation | null>(null);
 
   const load = useCallback(async () => {
     const freshCard = await api.getCard(cardId);
-    setCard(freshCard);
+    const freshProduct = await api.getProduct(freshCard.product_id);
+    const freshDossiers = await api.listResearchForProduct(freshCard.product_id);
 
-    const [freshProduct, freshDossiers, freshScripts] = await Promise.all([
-      api.getProduct(freshCard.product_id),
-      api.listResearchForProduct(freshCard.product_id),
-      api.listScriptsForProduct(freshCard.product_id),
-    ]);
+    setCard(freshCard);
     setProduct(freshProduct);
     setDossiers(freshDossiers);
-    setScripts(freshScripts);
+
+    if (freshProduct.platform === "shopee") {
+      setThreadsPosts(await api.listThreadsForProduct(freshCard.product_id));
+    } else {
+      setScripts(await api.listScriptsForProduct(freshCard.product_id));
+    }
     setLoading(false);
   }, [cardId]);
 
@@ -53,6 +56,8 @@ export function CardDetailView({ cardId, onBack }: Props) {
   }
 
   const latestDossier = dossiers[0] ?? null;
+  const isShopee = product.platform === "shopee";
+  const hasContent = isShopee ? threadsPosts.length > 0 : scripts.length > 0;
 
   if (teleprompterScript) {
     return <TeleprompterView script={teleprompterScript} onClose={() => setTeleprompterScript(null)} />;
@@ -60,17 +65,18 @@ export function CardDetailView({ cardId, onBack }: Props) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <BackButton onBack={onBack} />
-        <StatusBadge status={card.status} />
-      </div>
+      <BackButton onBack={onBack} />
 
       <ProductSummary product={product} />
 
-      <PipelinePanel card={card} dossier={latestDossier} hasScripts={scripts.length > 0} onChange={load} />
+      <PipelinePanel card={card} dossier={latestDossier} hasScripts={hasContent} onChange={load} />
 
-      {scripts.length > 0 && (
-        <ScriptPanel scripts={scripts} onChange={load} onOpenTeleprompter={setTeleprompterScript} />
+      {isShopee ? (
+        threadsPosts.length > 0 && <ThreadsPanel card={card} posts={threadsPosts} onChange={load} />
+      ) : (
+        scripts.length > 0 && (
+          <ScriptPanel scripts={scripts} onChange={load} onOpenTeleprompter={setTeleprompterScript} />
+        )
       )}
     </div>
   );
