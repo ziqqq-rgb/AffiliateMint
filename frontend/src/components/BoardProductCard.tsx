@@ -1,5 +1,4 @@
 import type { ContentCard as ContentCardType, ScrapedProduct } from "../types";
-import { formatRM } from "../lib/format";
 import { productSummaryLine } from "../lib/productSummaryLine";
 
 interface Props {
@@ -19,9 +18,7 @@ export function BoardProductCard({ card, product, busy, onAddToProgress }: Props
         <p className="line-clamp-2 text-sm font-semibold text-gray-900">
           {product?.title ?? `Product #${card.product_id}`}
         </p>
-        {product && (
-          <p className="mt-1 text-sm text-gray-600">{productSummaryLine(product)}</p>
-        )}
+        {product && <p className="mt-1 text-sm text-gray-600">{productSummaryLine(product)}</p>}
         {product?.shop_name && <p className="mt-1 text-xs text-gray-400">{product.shop_name}</p>}
         {product?.platform === "shopee" && product.commission_rate_pct > 0 && (
           <span className="inline-block rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">

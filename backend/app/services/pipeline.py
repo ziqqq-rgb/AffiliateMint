@@ -21,11 +21,23 @@ from app.db import engine
 from app.models import (
     CardStatus,
     ContentCard,
+    Platform,
     ResearchDossier,
     ResearchStatus,
     ScrapedProduct,
     ScriptVariation,
 )
+
+def _append_shopee_buy_link(entry: dict, product: ScrapedProduct) -> dict:
+    """Shopee has no native product-tagging on posts like TikTok Shop
+    does - the caption itself has to carry the trackable link so it
+    survives into the teleprompter's "copy caption" button. No-op for
+    TikTok, or when the scraper never captured a link for this item."""
+    if product.platform != Platform.SHOPEE or not product.affiliate_link:
+        return entry
+    entry = dict(entry)
+    entry["caption_ms"] = f"{entry['caption_ms']}\n\nBeli di sini: {product.affiliate_link}"
+    return entry
 
 
 def _card_for_product(session: Session, product_id: int) -> Optional[ContentCard]:
@@ -106,8 +118,11 @@ def start_scripting(session: Session, dossier_id: int) -> list[ScriptVariation]:
     if dossier.status != ResearchStatus.APPROVED:
         raise ValueError("Dossier must be approved before scripting")
 
+    product = session.get(ScrapedProduct, dossier.product_id)
+
     variations = []
-    for entry in generate_scripts(dossier):
+    for raw_entry in generate_scripts(dossier):
+        entry = _append_shopee_buy_link(raw_entry, product)
         variation = ScriptVariation(
             product_id=dossier.product_id,
             angle_type=entry["angle_type"],
@@ -194,9 +209,6 @@ def start_full_pipeline(session: Session, product_id: int) -> ContentCard:
 
 
 def run_full_pipeline_task(product_id: int) -> None:
-    """Runs as a FastAPI BackgroundTask - opens its own DB session since the
-    request's session closes as soon as the HTTP response goes out, which
-    happens immediately (see start_full_pipeline)."""
     with Session(engine) as session:
         card = _card_for_product(session, product_id)
         if card is None:
@@ -212,13 +224,14 @@ def run_full_pipeline_task(product_id: int) -> None:
                 usp=data["usp"],
                 review_summary_positive=data["review_summary_positive"],
                 review_summary_negative=data["review_summary_negative"],
-                status=ResearchStatus.APPROVED,  # auto-approved - no manual gate in this flow
+                status=ResearchStatus.APPROVED,
             )
             session.add(dossier)
             session.commit()
             session.refresh(dossier)
 
-            for entry in generate_scripts(dossier):
+            for raw_entry in generate_scripts(dossier):
+                entry = _append_shopee_buy_link(raw_entry, product)
                 session.add(
                     ScriptVariation(
                         product_id=product_id,
@@ -233,12 +246,11 @@ def run_full_pipeline_task(product_id: int) -> None:
                 )
 
             card.status = CardStatus.SCRIPTED_PENDING
-            card.used_auto_pipeline = True  # marks it for History (point 4)
+            card.used_auto_pipeline = True
         finally:
-            card.is_generating = False  # always release the lock, success or failure
+            card.is_generating = False
             session.add(card)
             session.commit()
-
 
 def advance_card_status(session: Session, card_id: int, new_status: CardStatus) -> ContentCard:
     card = session.get(ContentCard, card_id)
