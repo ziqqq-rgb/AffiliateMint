@@ -76,14 +76,44 @@ def save_scraped_products(session: Session, items: list[dict]) -> list[ScrapedPr
 
 class ScrapingPipelineService:
     @staticmethod
-    def _execute_sync_scrape(target_url: str) -> Dict[str, Any]:
+    def _execute_sync_scrape(
+        target_url: str,
+        category: str | None = None,
+        min_rating: float | None = None,
+        sort_by_sold: bool = False,
+        min_price: float | None = None,
+        max_price: float | None = None,
+    ) -> Dict[str, Any]:
         try:
-            items = run_hybrid_scraper(target_url)
+            items = run_hybrid_scraper(
+                target_url,
+                category=category,
+                min_rating=min_rating,
+                sort_by_sold=sort_by_sold,
+                min_price=min_price,
+                max_price=max_price,
+            )
             return {"success": True, "items": items}
         except Exception as e:
             logger.error(f"Scrape failed for {target_url}: {e}")
             return {"success": False, "error": str(e)}
 
     @classmethod
-    async def run_async_pipeline(cls, target_url: str) -> Dict[str, Any]:
-        return await asyncio.to_thread(cls._execute_sync_scrape, target_url)
+    async def run_async_pipeline(
+        cls,
+        target_url: str,
+        category: str | None = None,
+        min_rating: float | None = None,
+        sort_by_sold: bool = False,
+        min_price: float | None = None,
+        max_price: float | None = None,
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(
+            cls._execute_sync_scrape,
+            target_url,
+            category=category,
+            min_rating=min_rating,
+            sort_by_sold=sort_by_sold,
+            min_price=min_price,
+            max_price=max_price,
+        )

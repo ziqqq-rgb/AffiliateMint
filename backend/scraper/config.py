@@ -23,7 +23,7 @@ class ScraperConfig:
     min_review_score: float = 4.0
     min_units_sold: int = 100
     shortlist_size: int = 5
-
+    available_rating_tiers: tuple[float, ...] = (4.0, 4.5, 4.8)
     # NFR 5.2 scraping safety: keep these conservative, randomized
     min_delay_seconds: float = 2.0
     max_delay_seconds: float = 6.0

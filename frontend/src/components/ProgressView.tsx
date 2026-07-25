@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { ContentCard, ScrapedProduct } from "../types";
 import { Spinner } from "./Spinner";
 import { StatusBadge } from "./StatusBadge";
+import { formatRM } from "../lib/format";
 
 interface ProgressRow {
   card: ContentCard;
@@ -50,24 +51,54 @@ export function ProgressView({ onOpenCard }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-2 p-6">
+    <div className="mx-auto max-w-4xl space-y-4 p-6">
       {rows.map(({ card, product }) => (
-        <button
-          key={card.id}
-          onClick={() => onOpenCard(card.id)}
-          className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md"
-        >
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-gray-900">
-              {product?.title ?? `Product #${card.product_id}`}
-            </p>
-            <p className="mt-1 text-xs text-gray-500">
-              Added {card.added_to_progress_at ? new Date(card.added_to_progress_at).toLocaleDateString() : "-"}
-            </p>
-          </div>
-          <StatusBadge status={card.status} />
-        </button>
+        <ProgressCard key={card.id} card={card} product={product} onOpen={onOpenCard} />
       ))}
+    </div>
+  );
+}
+
+function ProgressCard({
+  card,
+  product,
+  onOpen,
+}: {
+  card: ContentCard;
+  product?: ScrapedProduct;
+  onOpen: (cardId: number) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1 px-1 text-xs text-gray-500">
+        Added {card.added_to_progress_at ? new Date(card.added_to_progress_at).toLocaleDateString() : "-"}
+      </p>
+
+      <button
+        onClick={() => onOpen(card.id)}
+        className="flex w-full items-center gap-4 rounded-xl border border-gray-200 bg-white p-3 text-left shadow-sm transition hover:border-gray-300 hover:shadow-md"
+      >
+        {product?.image_url && (
+          <img
+            src={product.image_url}
+            alt={product.title}
+            className="h-20 w-20 shrink-0 rounded-lg object-cover"
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-sm font-semibold text-gray-900">
+            {product?.title ?? `Product #${card.product_id}`}
+          </p>
+          {product && (
+            <p className="mt-1 text-sm text-gray-600">
+              {formatRM(product.price_rm)} &middot; {product.review_score.toFixed(1)}&#9733; ({product.review_count})
+              &middot; {product.units_sold.toLocaleString()} sold
+            </p>
+          )}
+          {product?.shop_name && <p className="mt-1 text-xs text-gray-400">{product.shop_name}</p>}
+        </div>
+        <StatusBadge status={card.status} />
+      </button>
     </div>
   );
 }
