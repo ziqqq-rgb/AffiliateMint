@@ -2,6 +2,7 @@
 A Threads post is one short block (<=500 chars), not a multi-shot video
 script, so the shape is simpler on purpose."""
 from app.models import ResearchDossier
+from agents.providers.gemini_client import run_task
 
 THREADS_PROMPT_TEMPLATE = """\
 Write 3 short Threads post variations in Bahasa Malaysia promoting this
@@ -20,8 +21,6 @@ Return a JSON list of 3 strings — post text only, WITHOUT the link
 
 
 def generate_threads_posts(dossier: ResearchDossier) -> list[str]:
-    from agents.hermes_client import run_task
-
     prompt = THREADS_PROMPT_TEMPLATE.format(
         what_it_does=dossier.what_it_does,
         key_benefits=dossier.key_benefits,

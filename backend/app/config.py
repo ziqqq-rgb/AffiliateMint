@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     threads_user_id: str = ""
     threads_access_token: str = ""
 
+    nvidia_api_base: str = "https://integrate.api.nvidia.com/v1/chat/completions"
+    nvidia_api_key: str = ""
+    nvidia_model: str = "z-ai/glm-5.2"
+
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta/models"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.6-flash"
+
     class Config:
         env_file = ".env"
         extra = "ignore"  # tolerate leftover keys in .env from before this restructure

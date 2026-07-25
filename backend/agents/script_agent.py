@@ -8,6 +8,8 @@ toward whatever worked before (design doc 3.2, FR-3.4).
 
 from agents.memory import search_similar_performance
 from app.models import ResearchDossier
+from agents.providers.gemini_client import run_task
+
 
 SCRIPT_PROMPT_TEMPLATE = """\
 Write 3 TikTok Shop script angles in Bahasa Malaysia for this product,
@@ -31,7 +33,6 @@ angle_type, hook_ms, body_ms, cta_ms, caption_ms, hashtags (list), visual_notes.
 
 def generate_scripts(dossier: ResearchDossier) -> list[dict]:
     """Calls Hermes to write 3 script variations for one approved dossier."""
-    from agents.hermes_client import run_task
 
     memory_notes = search_similar_performance(dossier) or "No relevant past data yet."
 

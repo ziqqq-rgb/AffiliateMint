@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from agents.threads_agent import generate_threads_posts
+from app.db import engine
 from app.models import CardStatus, ContentCard, ResearchDossier, ScrapedProduct, ThreadsPost
 from app.services.pipeline import _card_for_product
 from app.services.threads_client import publish_text_post
@@ -12,28 +13,51 @@ from app.services.affiliate_link import append_buy_link
 
 
 
-def start_threads_scripting(session: Session, dossier_id: int) -> list[ThreadsPost]:
+def start_threads_generation(session: Session, dossier_id: int) -> ContentCard:
+    """Flips the `is_generating` lock and returns immediately - same guard
+    as pipeline.start_full_pipeline. The actual Gemini call happens in
+    run_threads_generation_task, off the request thread, since it can run
+    longer than an HTTP client is willing to wait."""
     dossier = session.get(ResearchDossier, dossier_id)
     if dossier is None:
         raise ValueError(f"No ResearchDossier with id {dossier_id}")
 
-    product = session.get(ScrapedProduct, dossier.product_id)
-    posts = [
-        ThreadsPost(product_id=dossier.product_id, post_text=append_buy_link(text, product))
-        for text in generate_threads_posts(dossier)
-    ]
-    session.add_all(posts)
-
     card = _card_for_product(session, dossier.product_id)
-    if card:
-        card.status = CardStatus.SCRIPTED_PENDING
-        session.add(card)
+    if card is None:
+        raise ValueError(f"No ContentCard for product {dossier.product_id}")
+    if card.is_generating:
+        raise ValueError("Threads post generation is already running for this product")
 
+    card.is_generating = True
+    session.add(card)
     session.commit()
-    for post in posts:
-        session.refresh(post)
-    return posts
+    session.refresh(card)
+    return card
 
+
+def run_threads_generation_task(dossier_id: int) -> None:
+    """Runs off the request thread - opens its own DB session since the
+    request's session is gone by the time a background task executes."""
+    with Session(engine) as session:
+        dossier = session.get(ResearchDossier, dossier_id)
+        if dossier is None:
+            return
+        card = _card_for_product(session, dossier.product_id)
+        if card is None:
+            return
+
+        try:
+            product = session.get(ScrapedProduct, dossier.product_id)
+            posts = [
+                ThreadsPost(product_id=dossier.product_id, post_text=append_buy_link(text, product))
+                for text in generate_threads_posts(dossier)
+            ]
+            session.add_all(posts)
+            card.status = CardStatus.SCRIPTED_PENDING
+        finally:
+            card.is_generating = False
+            session.add(card)
+            session.commit()
 
 
 def select_threads_post(session: Session, post_id: int) -> ContentCard:

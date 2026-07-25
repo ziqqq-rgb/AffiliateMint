@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlmodel import Session
 
 from app.db import get_session
@@ -6,19 +6,25 @@ from app.models import ContentCard, ThreadsPost
 from app.services.threads_pipeline import (
     get_threads_posts_for_product,
     publish_threads_post,
+    run_threads_generation_task,
     select_threads_post,
-    start_threads_scripting,
+    start_threads_generation,
 )
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
 
-@router.post("/{dossier_id}/generate", response_model=list[ThreadsPost])
-def generate(dossier_id: int, session: Session = Depends(get_session)):
+@router.post("/{dossier_id}/generate", response_model=ContentCard)
+def generate(dossier_id: int, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    """Returns immediately; poll GET /threads/product/{id} or
+    GET /cards/{id} (watch is_generating) for when posts are ready -
+    same pattern as products.py's run-pipeline endpoint."""
     try:
-        return start_threads_scripting(session, dossier_id)
+        card = start_threads_generation(session, dossier_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e))
+    background_tasks.add_task(run_threads_generation_task, dossier_id)
+    return card
 
 
 @router.post("/posts/{post_id}/select", response_model=ContentCard)
