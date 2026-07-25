@@ -3,7 +3,6 @@ import { api } from "../api";
 import type { ContentCard, Platform, ScrapedProduct } from "../types";
 import { PlatformTabs } from "./PlatformTabs";
 import { Spinner } from "./Spinner";
-import { StatusBadge } from "./StatusBadge";
 import { productSummaryLine } from "../lib/productSummaryLine";
 
 interface ProgressRow {
@@ -97,7 +96,6 @@ function ProgressCard({
           {product && <p className="mt-1 text-sm text-gray-600">{productSummaryLine(product)}</p>}
           {product?.shop_name && <p className="mt-1 text-xs text-gray-400">{product.shop_name}</p>}
         </div>
-        <StatusBadge status={card.status} />
       </button>
     </div>
   );
