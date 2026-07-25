@@ -21,6 +21,36 @@ logger = logging.getLogger(__name__)
 GET_LINK_BUTTON_SELECTOR = "button.AffiliateItemCard__getlinkBtn"
 GET_LINK_RESPONSE_URL_HINT = "productOfferLinks"
 
+# Best-effort selectors for the popup's close (X) button. Shopee doesn't
+# expose a stable data-testid, so we try a few common patterns and fall
+# back to pressing Escape - whichever actually matches, this stops the
+# popup from blocking the next "Get Link" click.
+MODAL_CLOSE_SELECTOR = (
+    '[class*="modal" i] [class*="close" i], '
+    '[aria-label="Close" i], '
+    '[class*="Modal__close" i]'
+)
+
+
+def _close_link_modal(page: Page, timeout_ms: int = 3000) -> None:
+    """Closes the 'Get Link' popup so the next button isn't blocked.
+    We already read the link from the network response, so we don't
+    need to click 'Copy' - just get the popup out of the way."""
+    close_btn = page.locator(MODAL_CLOSE_SELECTOR).first
+    try:
+        close_btn.wait_for(state="visible", timeout=timeout_ms)
+        close_btn.click()
+        return
+    except PlaywrightTimeoutError:
+        pass
+
+    # Fallback: Escape key closes most modal implementations even
+    # without a matched close button.
+    try:
+        page.keyboard.press("Escape")
+    except Exception as e:
+        logger.warning(f"[!] Could not close Get Link popup: {e}")
+
 
 def fetch_links_for_page(page: Page, offers_on_page: list[dict], timeout_ms: int = 10000) -> None:
     """Mutates each dict in offers_on_page, setting affiliate_link in
@@ -51,8 +81,6 @@ def fetch_links_for_page(page: Page, offers_on_page: list[dict], timeout_ms: int
                 button.click()
             body = response_info.value.json()
             links = body.get("data", {}).get("productOfferLinks", [])
-            # Extra safety check: confirm the response actually names the
-            # item we expected at this position, not just "a" response.
             match = next((l for l in links if str(l.get("itemId")) == item_id), None)
             if match:
                 offer["affiliate_link"] = match.get("productOfferLink", "")
@@ -65,3 +93,7 @@ def fetch_links_for_page(page: Page, offers_on_page: list[dict], timeout_ms: int
         except Exception as e:
             logger.warning(f"[!] Get Link failed for item {item_id} (button #{i}): {e}")
             offer["affiliate_link"] = ""
+        finally:
+            # Popup blocks the next button's click target - always try
+            # to close it, success or failure, before moving on.
+            _close_link_modal(page)
