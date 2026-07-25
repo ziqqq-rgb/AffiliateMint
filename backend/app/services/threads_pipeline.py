@@ -80,3 +80,10 @@ def get_threads_posts_for_product(session: Session, product_id: int) -> list[Thr
     """Feeds the card-detail view, same role as pipeline.get_scripts_for_product."""
     statement = select(ThreadsPost).where(ThreadsPost.product_id == product_id)
     return list(session.exec(statement))
+
+def auto_select_and_publish(session: Session, posts: list[ThreadsPost]) -> ContentCard:
+    """Skips manual review — picks the first generated variant and
+    publishes it immediately. Used by the one-click pipeline when
+    auto-publish is enabled."""
+    card = select_threads_post(session, posts[0].id)
+    return publish_threads_post(session, card.id)

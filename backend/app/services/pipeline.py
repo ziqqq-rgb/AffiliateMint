@@ -30,6 +30,8 @@ from app.models import (
 from app.services.affiliate_link import append_buy_link
 from agents.threads_agent import generate_threads_posts
 from app.models import ThreadsPost 
+from app.config import settings
+
 
 def _append_shopee_buy_link(entry: dict, product: ScrapedProduct) -> dict:
     entry = dict(entry)
@@ -202,11 +204,14 @@ def _generate_and_save_scripts(session: Session, dossier: ResearchDossier, produ
         )
 
 
-def _generate_and_save_threads_posts(session: Session, dossier: ResearchDossier, product: ScrapedProduct) -> None:
-    """Shopee path: short Threads text posts, buy link baked straight
-    into the post text since that's what gets published as-is."""
+def _generate_and_save_threads_posts(session, dossier, product) -> list[ThreadsPost]:
+    posts = []
     for text in generate_threads_posts(dossier):
-        session.add(ThreadsPost(product_id=product.id, post_text=append_buy_link(text, product)))
+        post = ThreadsPost(product_id=product.id, post_text=append_buy_link(text, product))
+        session.add(post)
+        posts.append(post)
+    session.flush()  # assigns post.id so it can be referenced below, without committing yet
+    return posts
 
 
 def start_full_pipeline(session: Session, product_id: int) -> ContentCard:
@@ -248,9 +253,15 @@ def run_full_pipeline_task(product_id: int) -> None:
             session.refresh(dossier)
 
             if product.platform == Platform.SHOPEE:
-                _generate_and_save_threads_posts(session, dossier, product)
+                posts = _generate_and_save_threads_posts(session, dossier, product)
+                if settings.auto_publish_shopee_threads:
+                    from app.services.threads_pipeline import auto_select_and_publish
+                    auto_select_and_publish(session, posts)
+                else:
+                    card.status = CardStatus.SCRIPTED_PENDING
             else:
                 _generate_and_save_scripts(session, dossier, product)
+                card.status = CardStatus.SCRIPTED_PENDING
 
             card.status = CardStatus.SCRIPTED_PENDING
             card.used_auto_pipeline = True
