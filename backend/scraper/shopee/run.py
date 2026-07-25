@@ -14,12 +14,22 @@ from scraper.shopee.intercept import parse_offer_response
 from scraper.shopee.link_fetcher import fetch_links_for_page
 from scraper.shopee.pagination import go_to_page, scroll_to_bottom
 
-
 SESSION_FILE = "shopee_affiliate_session.txt"
+
 
 def run_shopee_scraper(min_commission_rate: float | None = None) -> list[dict]:
     driver = Driver(uc=True, incognito=False, headless=False)
-    captured_offers: list[dict] = []
+
+    # Keyed by shopee_item_id, NOT a plain list - the offer-list endpoint
+    # can fire more than once for the same page (SPA re-renders, hover
+    # prefetch, retries), which previously produced duplicate dict objects
+    # for the same product. fetch_links_for_page would mutate one of the
+    # duplicates while apply_filters' sort could return the OTHER,
+    # unmutated one - links looked "successfully fetched" in logs but
+    # never appeared in the final result. Keying by item id guarantees
+    # exactly one dict object per product, so the mutation is always
+    # visible in whatever gets returned.
+    captured_offers: dict[str, dict] = {}
 
     try:
         load_cookies(driver, config.offer_page_url, SESSION_FILE)
@@ -35,7 +45,8 @@ def run_shopee_scraper(min_commission_rate: float | None = None) -> list[dict]:
                     return
                 try:
                     if "json" in response.headers.get("content-type", ""):
-                        captured_offers.extend(parse_offer_response(response.json()))
+                        for offer in parse_offer_response(response.json()):
+                            captured_offers[offer["shopee_item_id"]] = offer
                 except Exception:
                     pass
 
@@ -52,21 +63,19 @@ def run_shopee_scraper(min_commission_rate: float | None = None) -> list[dict]:
 
             _harvest_pages(page, captured_offers)
 
-            shortlist = apply_filters(captured_offers)
+            shortlist = apply_filters(list(captured_offers.values()))
             browser.close()
             return shortlist
     finally:
         driver.quit()
 
 
-def _harvest_pages(page, captured_offers: list[dict]) -> None:
-    """Page 1's data is already captured from the initial page load -
-    this walks pages 2..max_pages by clicking each page-number span.
-    Fetches affiliate links for each page's offers immediately, before
-    moving on - the Get Link buttons only exist while that page is
-    actually rendered."""
+def _harvest_pages(page, captured_offers: dict[str, dict]) -> None:
+    """Walks pages 1..max_pages, fetching that page's affiliate links
+    immediately (buttons only exist while the page is rendered), and
+    stopping early once enough qualifying offers are found."""
     scroll_to_bottom(page)
-    fetch_links_for_page(page, captured_offers)  # page 1's offers, buttons still visible
+    fetch_links_for_page(page, list(captured_offers.values()))  # page 1
 
     for page_num in range(2, config.max_pages + 1):
         if _enough_candidates(captured_offers):
@@ -74,17 +83,19 @@ def _harvest_pages(page, captured_offers: list[dict]) -> None:
             return
 
         print(f"  -> Harvesting page {page_num}/{config.max_pages} ({len(captured_offers)} offers so far)...")
-        before_count = len(captured_offers)
+        before_ids = set(captured_offers.keys())
 
         if not go_to_page(page, page_num):
             print(f"  -> Page {page_num} not available - stopping.")
             return
-        page.wait_for_timeout(2000)  # let the page's XHR fire and get captured
+        page.wait_for_timeout(2000)
 
-        new_offers = captured_offers[before_count:]
+        new_ids = set(captured_offers.keys()) - before_ids
+        new_offers = [captured_offers[i] for i in new_ids]
         if new_offers:
             fetch_links_for_page(page, new_offers)
 
-def _enough_candidates(offers: list[dict]) -> bool:
-    passing = [o for o in offers if o.get("commission_rate_pct", 0) >= config.min_commission_rate]
+
+def _enough_candidates(offers: dict[str, dict]) -> bool:
+    passing = [o for o in offers.values() if o.get("commission_rate_pct", 0) >= config.min_commission_rate]
     return len(passing) >= config.shortlist_size
