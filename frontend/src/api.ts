@@ -51,6 +51,12 @@ export const api = {
   // Dashboard tab - was missing, which broke the Dashboard page entirely
   getDashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
 
+  runShopeeScraper: (minCommissionRate?: number) =>
+  request<ScrapedProduct[]>("/shopee/scrape", {
+    method: "POST",
+    body: JSON.stringify({ min_commission_rate: minCommissionRate ?? null }),
+  }),
+
   // History tab - was missing, which broke the History page too
   listEarningsForCard: (cardId: number) => request<EarningsEntry[]>(`/earnings/card/${cardId}`),
 };

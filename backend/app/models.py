@@ -16,6 +16,9 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
+class Platform(str, Enum):
+    TIKTOK = "tiktok"
+    SHOPEE = "shopee"
 
 class ResearchStatus(str, Enum):
     PENDING = "pending"
@@ -45,7 +48,9 @@ class ScrapedProduct(SQLModel, table=True):
     use (see scraper/README or backend/README "How the scraper works").
     Shortlisting instead ranks on rating + units sold.
     """
-
+    platform: Platform = Platform.TIKTOK
+    commission_rate_pct: float = 0.0   # Shopee only — TikTok's storefront exposes none
+    affiliate_link: str = ""            # Shopee's tracked productOfferLink (from "Get Link")
     id: Optional[int] = Field(default=None, primary_key=True)
     tiktok_product_id: str  # TikTok's own ID - lets repeat scrapes de-dupe later
     title: str
@@ -57,7 +62,7 @@ class ScrapedProduct(SQLModel, table=True):
     shop_name: str = ""
     image_url: str = ""
     product_url: str
-    raw_payload: str  # FR-1.4: keep the raw response so a parsing bug doesn't lose data
+    raw_payload: str  
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -118,3 +123,10 @@ class EarningsEntry(SQLModel, table=True):
     commission_earned_rm: float = 0.0
     notes: Optional[str] = None
 
+class ThreadsPost(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_id: int = Field(foreign_key="scrapedproduct.id")
+    post_text: str
+    is_selected: bool = False
+    posted_at: Optional[datetime] = None
+    threads_post_id: Optional[str] = None

@@ -1,5 +1,6 @@
 import type { ContentCard as ContentCardType, ScrapedProduct } from "../types";
 import { formatRM } from "../lib/format";
+import { productSummaryLine } from "../lib/productSummaryLine";
 
 interface Props {
   card: ContentCardType;
@@ -21,10 +22,7 @@ export function ContentCard({ card, product, onOpen }: Props) {
           {product?.title ?? `Product #${card.product_id}`}
         </p>
         {product && (
-          <p className="mt-1 text-sm text-gray-600">
-            {formatRM(product.price_rm)} &middot; {product.review_score.toFixed(1)}&#9733; ({product.review_count})
-            &middot; {product.units_sold.toLocaleString()} sold
-          </p>
+          <p className="mt-1 text-sm text-gray-600">{productSummaryLine(product)}</p>
         )}
         {product?.shop_name && <p className="mt-1 text-xs text-gray-400">{product.shop_name}</p>}
       </div>

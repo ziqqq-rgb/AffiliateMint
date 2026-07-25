@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     scraper_headless: bool = True
 
+    threads_user_id: str = ""
+    threads_access_token: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"  # tolerate leftover keys in .env from before this restructure

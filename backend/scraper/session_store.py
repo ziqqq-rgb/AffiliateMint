@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def save_cookies(driver, filepath: str = "affiliate_session.txt") -> None:
-    """Dumps Selenium's cookie list as JSON. Run once after a manual
-    browse/login session so future scrapes skip needing fresh incognito."""
+    """Selenium-flavor cookie dump - counterpart to load_cookies() above.
+    Distinct from capture_session.py's SessionManager.save_session, which
+    targets a different driver type (see that file's module docstring)."""
     cookies = driver.get_cookies()
     Path(filepath).write_text(json.dumps(cookies, indent=2))
     logger.info(f"[+] Saved {len(cookies)} cookies to {filepath}")

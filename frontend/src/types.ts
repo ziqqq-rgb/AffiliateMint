@@ -9,8 +9,11 @@ export type CardStatus =
   | "posted"
   | "earnings_logged";
 
+export type Platform = "tiktok" | "shopee";
+
 export interface ScrapedProduct {
   id: number;
+  platform: Platform;
   title: string;
   price_rm: number;
   original_price_rm: number;
@@ -20,6 +23,8 @@ export interface ScrapedProduct {
   shop_name: string;
   image_url: string;
   product_url: string;
+  commission_rate_pct: number;   
+  affiliate_link: string;        
   scraped_at: string;
 }
 
