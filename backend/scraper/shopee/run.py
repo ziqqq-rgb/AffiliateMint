@@ -13,6 +13,8 @@ from scraper.shopee.filters import apply_filters
 from scraper.shopee.intercept import parse_offer_response
 from scraper.shopee.link_fetcher import fetch_links_for_page
 from scraper.shopee.pagination import go_to_page, scroll_to_bottom
+from scraper.pacing import human_pause
+
 
 SESSION_FILE = "shopee_affiliate_session.txt"
 
@@ -71,9 +73,6 @@ def run_shopee_scraper(min_commission_rate: float | None = None) -> list[dict]:
 
 
 def _harvest_pages(page, captured_offers: dict[str, dict]) -> None:
-    """Walks pages 1..max_pages, fetching that page's affiliate links
-    immediately (buttons only exist while the page is rendered), and
-    stopping early once enough qualifying offers are found."""
     scroll_to_bottom(page)
     fetch_links_for_page(page, list(captured_offers.values()))  # page 1
 
@@ -85,6 +84,7 @@ def _harvest_pages(page, captured_offers: dict[str, dict]) -> None:
         print(f"  -> Harvesting page {page_num}/{config.max_pages} ({len(captured_offers)} offers so far)...")
         before_ids = set(captured_offers.keys())
 
+        human_pause(config.min_delay_seconds, config.max_delay_seconds)  # <-- new, before turning the page
         if not go_to_page(page, page_num):
             print(f"  -> Page {page_num} not available - stopping.")
             return

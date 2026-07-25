@@ -15,16 +15,14 @@ work, unlike the DOM-scraping approach.
 import logging
 
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
+from scraper.pacing import human_pause
+from scraper.shopee.config import config
 
 logger = logging.getLogger(__name__)
 
 GET_LINK_BUTTON_SELECTOR = "button.AffiliateItemCard__getlinkBtn"
 GET_LINK_RESPONSE_URL_HINT = "productOfferLinks"
 
-# Best-effort selectors for the popup's close (X) button. Shopee doesn't
-# expose a stable data-testid, so we try a few common patterns and fall
-# back to pressing Escape - whichever actually matches, this stops the
-# popup from blocking the next "Get Link" click.
 MODAL_CLOSE_SELECTOR = (
     '[class*="modal" i] [class*="close" i], '
     '[aria-label="Close" i], '
@@ -82,11 +80,9 @@ def fetch_links_for_page(page: Page, offers_on_page: list[dict], timeout_ms: int
             body = response_info.value.json()
             links = body.get("data", {}).get("productOfferLinks", [])
             match = next((l for l in links if str(l.get("itemId")) == item_id), None)
-            if match:
-                offer["affiliate_link"] = match.get("productOfferLink", "")
-            else:
+            offer["affiliate_link"] = match.get("productOfferLink", "") if match else ""
+            if not match:
                 logger.warning(f"[!] Button #{i} response didn't contain expected itemId {item_id}")
-                offer["affiliate_link"] = ""
         except PlaywrightTimeoutError:
             logger.warning(f"[!] No response within {timeout_ms}ms for item {item_id} (button #{i})")
             offer["affiliate_link"] = ""
@@ -94,6 +90,5 @@ def fetch_links_for_page(page: Page, offers_on_page: list[dict], timeout_ms: int
             logger.warning(f"[!] Get Link failed for item {item_id} (button #{i}): {e}")
             offer["affiliate_link"] = ""
         finally:
-            # Popup blocks the next button's click target - always try
-            # to close it, success or failure, before moving on.
             _close_link_modal(page)
+            human_pause(config.min_delay_seconds, config.max_delay_seconds)
