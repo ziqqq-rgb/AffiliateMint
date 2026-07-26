@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.6-flash"
 
+    # Default: Anthropic-hosted Firecrawl. Point at a self-hosted instance
+    # instead by setting FIRECRAWL_API_BASE=http://localhost:3002/v1 in
+    # .env (see infra/firecrawl/ setup below) - firecrawl_client.py reads
+    # this, no code change needed either way.
+    firecrawl_api_base: str = "https://api.firecrawl.dev/v1"
     firecrawl_api_key: str = ""
 
     class Config:

@@ -5,4 +5,4 @@ __pycache__/
 node_modules/
 dist/
 .browser_profile/
-.pytest_cache/
+.pytest_cache/infra/firecrawl/

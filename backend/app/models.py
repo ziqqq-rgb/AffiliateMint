@@ -61,7 +61,17 @@ class ScrapedProduct(SQLModel, table=True):
 
 
 class ResearchDossier(SQLModel, table=True):
-    """Deep research written by the Hermes research agent. FR-2.1 - FR-2.4."""
+    """Research written by the Hermes research agent, in two parts
+    (FR-2.1 - FR-2.4):
+
+    - Summary section (what_it_does, key_benefits, usps, review_summary_*)
+      - always generated, grounded only in the product's own scraped data.
+    - Deep research section (ingredients_research) - optional, only
+      populated when the product has ingredient/compound-style topics
+      worth researching (supplements, skincare, etc). JSON-encoded list
+      of {topic, what_it_is, how_it_works, who_benefits, things_to_know,
+      sources}. "[]" when not applicable - see agents/deep_research_agent.py.
+    """
 
     id: Optional[int] = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="scrapedproduct.id")
@@ -70,6 +80,7 @@ class ResearchDossier(SQLModel, table=True):
     usps: str  
     review_summary_positive: str
     review_summary_negative: str
+    ingredients_research: str = "[]"  # JSON-encoded list, see docstring above
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

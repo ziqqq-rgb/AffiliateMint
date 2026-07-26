@@ -26,6 +26,10 @@ just restate the same USP three times):
 Positive reviews say: {review_summary_positive}
 Negative reviews say: {review_summary_negative}
 
+Ingredient/science research (use this for credibility where relevant -
+keep claims hedged, e.g. "may support...", not definitive medical claims):
+{ingredients_research}
+
 Past-performance notes (favor these angles/hooks when relevant):
 {memory_notes}
 
@@ -40,6 +44,16 @@ def _format_usps(dossier: ResearchDossier) -> str:
     return "\n".join(f"- {usp}" for usp in json.loads(dossier.usps))
 
 
+def _format_ingredients_research(dossier: ResearchDossier) -> str:
+    topics = json.loads(dossier.ingredients_research or "[]")
+    if not topics:
+        return "No ingredient/science research for this product."
+    return "\n\n".join(
+        f"{t['topic']}: {t['what_it_is']} {t['how_it_works']} Best for: {t['who_benefits']}"
+        for t in topics
+    )
+
+
 def generate_scripts(dossier: ResearchDossier) -> list[dict]:
     """Calls Hermes to write 3 script variations for one approved dossier."""
 
@@ -51,6 +65,7 @@ def generate_scripts(dossier: ResearchDossier) -> list[dict]:
         usps=_format_usps(dossier),
         review_summary_positive=dossier.review_summary_positive,
         review_summary_negative=dossier.review_summary_negative,
+        ingredients_research=_format_ingredients_research(dossier),
         memory_notes=memory_notes,
     )
     return run_task(prompt, expects_json=True)

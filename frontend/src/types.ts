@@ -28,6 +28,18 @@ export interface ScrapedProduct {
   scraped_at: string;
 }
 
+/** One entry in ResearchDossier.ingredients_research (JSON-encoded list -
+ * see backend/agents/deep_research_agent.py). Empty list when the
+ * product has no ingredient/compound topics worth researching. */
+export interface IngredientResearch {
+  topic: string;
+  what_it_is: string;
+  how_it_works: string;
+  who_benefits: string;
+  things_to_know: string;
+  sources: string[];
+}
+
 export interface ResearchDossier {
   id: number;
   product_id: number;
@@ -36,6 +48,7 @@ export interface ResearchDossier {
   usps: string;         
   review_summary_positive: string;
   review_summary_negative: string;
+  ingredients_research: string; // JSON-encoded IngredientResearch[]
   created_at: string;
 }
 

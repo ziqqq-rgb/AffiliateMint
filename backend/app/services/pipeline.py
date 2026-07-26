@@ -14,6 +14,7 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
+from agents.deep_research_agent import build_deep_research
 from agents.memory import remember_edit
 from agents.research_agent import build_research_dossier
 from agents.script_agent import generate_scripts
@@ -53,6 +54,22 @@ def ensure_card_for_product(session: Session, product_id: int) -> ContentCard:
     return card
 
 
+def _build_dossier(product: ScrapedProduct) -> ResearchDossier:
+    """Shared by start_research (manual) and run_full_pipeline_task
+    (auto) so the summary + deep-research build logic lives in one
+    place - was duplicated inline in both before this."""
+    data = build_research_dossier(product)
+    return ResearchDossier(
+        product_id=product.id,
+        what_it_does=data["what_it_does"],
+        key_benefits=json.dumps(data["key_benefits"]),
+        usps=json.dumps(data["usps"]),
+        review_summary_positive=data["review_summary_positive"],
+        review_summary_negative=data["review_summary_negative"],
+        ingredients_research=build_deep_research(product),
+    )
+
+
 # --- Manual, gated stages -----------------------------------------------
 # Kept for direct API/MCP use. The dashboard no longer calls these on their
 # own - see the one-click flow below instead.
@@ -62,15 +79,7 @@ def start_research(session: Session, product_id: int) -> ResearchDossier:
     if product is None:
         raise ValueError(f"No ScrapedProduct with id {product_id}")
 
-    data = build_research_dossier(product)
-    dossier = ResearchDossier(
-        product_id=product_id,
-        what_it_does=data["what_it_does"],
-        key_benefits=json.dumps(data["key_benefits"]),
-        usps=json.dumps(data["usps"]),
-        review_summary_positive=data["review_summary_positive"],
-        review_summary_negative=data["review_summary_negative"],
-    )
+    dossier = _build_dossier(product)
     session.add(dossier)
 
     card = ensure_card_for_product(session, product_id)
@@ -208,15 +217,7 @@ def run_full_pipeline_task(product_id: int) -> None:
 
         try:
             product = session.get(ScrapedProduct, product_id)
-            data = build_research_dossier(product)
-            dossier = ResearchDossier(
-                product_id=product_id,
-                what_it_does=data["what_it_does"],
-                key_benefits=json.dumps(data["key_benefits"]),
-                usps=json.dumps(data["usps"]),
-                review_summary_positive=data["review_summary_positive"],
-                review_summary_negative=data["review_summary_negative"],
-            )
+            dossier = _build_dossier(product)
             session.add(dossier)
             session.commit()
             session.refresh(dossier)
