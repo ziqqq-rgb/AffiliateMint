@@ -17,9 +17,17 @@ export default function App() {
   const [openCardId, setOpenCardId] = useState<number | null>(null);
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+    <div className="min-h-screen bg-gray-50"> 
       <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
-        <h1 className="text-lg font-semibold tracking-tight">AffiliateMint</h1>
+        <div className="flex items-center gap-2.5">
+          <img src="/logo.svg" alt="AffiliateMint logo" className="h-15 w-18 rounded-lg" />
+          <h1
+            className="text-xl font-bold tracking-tight text-gray-900 -ml-8"
+            style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+          >
+            AffiliateMint
+          </h1>
+        </div>
         {openCardId === null && (
           <nav className="flex gap-1 rounded-lg bg-gray-100 p-1">
             {TABS.map((t) => (
