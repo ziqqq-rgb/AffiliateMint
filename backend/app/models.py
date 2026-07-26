@@ -20,14 +20,8 @@ class Platform(str, Enum):
     TIKTOK = "tiktok"
     SHOPEE = "shopee"
 
-class ResearchStatus(str, Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
 
 class CardStatus(str, Enum):
-    """Kanban columns - FR-4.1."""
 
     SCRAPED = "scraped"
     RESEARCHED_PENDING = "researched_pending"
@@ -72,12 +66,10 @@ class ResearchDossier(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="scrapedproduct.id")
     what_it_does: str
-    key_benefits: str  # JSON-encoded list - SQLite has no native array type
-    usps: str  # JSON-encoded list of exactly 3 distinct differentiators (renamed from `usp`)
+    key_benefits: str 
+    usps: str  
     review_summary_positive: str
     review_summary_negative: str
-    status: ResearchStatus = ResearchStatus.PENDING
-    rejection_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

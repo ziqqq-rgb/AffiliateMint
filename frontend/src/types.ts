@@ -32,12 +32,10 @@ export interface ResearchDossier {
   id: number;
   product_id: number;
   what_it_does: string;
-  key_benefits: string;
+  key_benefits: string; 
   usps: string;         
   review_summary_positive: string;
   review_summary_negative: string;
-  status: "pending" | "approved" | "rejected";
-  rejection_reason: string | null;
   created_at: string;
 }
 

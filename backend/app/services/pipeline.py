@@ -23,7 +23,6 @@ from app.models import (
     ContentCard,
     Platform,
     ResearchDossier,
-    ResearchStatus,
     ScrapedProduct,
     ScriptVariation,
 )
@@ -71,7 +70,6 @@ def start_research(session: Session, product_id: int) -> ResearchDossier:
         usps=json.dumps(data["usps"]),
         review_summary_positive=data["review_summary_positive"],
         review_summary_negative=data["review_summary_negative"],
-        status=ResearchStatus.PENDING,
     )
     session.add(dossier)
 
@@ -84,38 +82,10 @@ def start_research(session: Session, product_id: int) -> ResearchDossier:
     return dossier
 
 
-def review_research(
-    session: Session,
-    dossier_id: int,
-    approved: bool,
-    rejection_reason: Optional[str] = None,
-) -> ResearchDossier:
-    dossier = session.get(ResearchDossier, dossier_id)
-    if dossier is None:
-        raise ValueError(f"No ResearchDossier with id {dossier_id}")
-
-    if approved:
-        dossier.status = ResearchStatus.APPROVED
-        card = _card_for_product(session, dossier.product_id)
-        if card:
-            card.status = CardStatus.RESEARCH_APPROVED
-            session.add(card)
-    else:
-        dossier.status = ResearchStatus.REJECTED
-        dossier.rejection_reason = rejection_reason
-
-    session.add(dossier)
-    session.commit()
-    session.refresh(dossier)
-    return dossier
-
-
 def start_scripting(session: Session, dossier_id: int) -> list[ScriptVariation]:
     dossier = session.get(ResearchDossier, dossier_id)
     if dossier is None:
         raise ValueError(f"No ResearchDossier with id {dossier_id}")
-    if dossier.status != ResearchStatus.APPROVED:
-        raise ValueError("Dossier must be approved before scripting")
 
     product = session.get(ScrapedProduct, dossier.product_id)
 
@@ -246,7 +216,6 @@ def run_full_pipeline_task(product_id: int) -> None:
                 usps=json.dumps(data["usps"]),
                 review_summary_positive=data["review_summary_positive"],
                 review_summary_negative=data["review_summary_negative"],
-                status=ResearchStatus.APPROVED,
             )
             session.add(dossier)
             session.commit()
