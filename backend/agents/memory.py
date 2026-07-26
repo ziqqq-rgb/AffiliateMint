@@ -19,11 +19,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory USING fts5(
     angle_type, hook_ms, product_title, commission_earned_rm, notes
 );
 """
+_CREATE_THREADS_TABLE_SQL = """
+CREATE VIRTUAL TABLE IF NOT EXISTS threads_memory USING fts5(
+    post_text, notes
+);
+"""
 
 
 def _get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.execute(_CREATE_TABLE_SQL)
+    conn.execute(_CREATE_THREADS_TABLE_SQL) 
     return conn
 
 
@@ -89,3 +95,36 @@ def remember_edit(script) -> None:
     )
     conn.commit()
     conn.close()
+
+def remember_threads_edit(post) -> None:
+    """Threads analogue of remember_edit() above. Kept in its own FTS5
+    table since a Threads post has no angle_type/hook_ms split - it's
+    one block of text."""
+    conn = _get_connection()
+    conn.execute(
+        "INSERT INTO threads_memory (post_text, notes) VALUES (?, ?)",
+        (post.post_text, "manually edited by operator"),
+    )
+    conn.commit()
+    conn.close()
+
+
+def search_similar_threads_posts(dossier, limit: int = 3) -> str:
+    """Full-text search over past kept/edited Threads posts related to
+    this product's USP - feeds threads_agent's prompt, same role as
+    search_similar_performance() for the script prompt."""
+    query = _sanitize_fts_query(dossier.usp)
+    if not query:
+        return ""
+
+    conn = _get_connection()
+    cursor = conn.execute(
+        "SELECT post_text FROM threads_memory WHERE threads_memory MATCH ? ORDER BY rank LIMIT ?",
+        (query, limit),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return ""
+    return "\n".join(f'- "{text}"' for (text,) in rows)

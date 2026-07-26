@@ -14,17 +14,18 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./tiktok_engine.db"
     sql_echo: bool = False
 
-    hermes_api_url: str = "http://localhost:8080"  # TODO: point at your Hermes Agent instance
+    hermes_api_url: str = "http://localhost:8080"  
     hermes_api_key: str = ""
 
     scraper_headless: bool = True
 
     threads_user_id: str = ""
     threads_access_token: str = ""
-
+    auto_publish_shopee_threads: bool = False
+    
     nvidia_api_base: str = "https://integrate.api.nvidia.com/v1/chat/completions"
     nvidia_api_key: str = ""
-    nvidia_model: str = "z-ai/glm-5.2"
+    nvidia_model: str = "deepseek-ai/deepseek-v4-flash"
 
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta/models"
     gemini_api_key: str = ""

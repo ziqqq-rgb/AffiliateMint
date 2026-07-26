@@ -10,6 +10,7 @@ from app.models import CardStatus, ContentCard, ResearchDossier, ScrapedProduct,
 from app.services.pipeline import _card_for_product
 from app.services.threads_client import publish_text_post
 from app.services.affiliate_link import append_buy_link
+from agents.memory import remember_threads_edit 
 
 
 
@@ -65,6 +66,16 @@ def select_threads_post(session: Session, post_id: int) -> ContentCard:
     if post is None:
         raise ValueError(f"No ThreadsPost with id {post_id}")
 
+    # Only one post can be selected per product at a time - unselect any
+    # previous pick so publish_threads_post's is_selected lookup is unambiguous.
+    siblings = session.exec(
+        select(ThreadsPost).where(ThreadsPost.product_id == post.product_id, ThreadsPost.id != post.id)
+    ).all()
+    for sibling in siblings:
+        if sibling.is_selected:
+            sibling.is_selected = False
+            session.add(sibling)
+
     post.is_selected = True
     session.add(post)
 
@@ -74,6 +85,33 @@ def select_threads_post(session: Session, post_id: int) -> ContentCard:
     session.commit()
     session.refresh(card)
     return card
+
+
+def edit_threads_post(session: Session, post_id: int, post_text: str) -> ThreadsPost:
+    """Hand-edit a generated Threads post - Threads analogue of
+    app/services/pipeline.py's edit_script. Feeds the edit into Hermes'
+    memory so future posts lean toward kept phrasing (same feedback
+    loop as script edits)."""
+    post = session.get(ThreadsPost, post_id)
+    if post is None:
+        raise ValueError(f"No ThreadsPost with id {post_id}")
+    if post.posted_at is not None:
+        raise ValueError("Cannot edit a post that has already been published")
+
+    post.post_text = post_text
+    session.add(post)
+    session.commit()
+    session.refresh(post)
+
+    remember_threads_edit(post)
+    return post
+
+
+def post_threads_post_now(session: Session, post_id: int) -> ContentCard:
+    """'Post this' button: selects and publishes one post in a single
+    action. Also used by auto_select_and_publish below."""
+    card = select_threads_post(session, post_id)
+    return publish_threads_post(session, card.id)
 
 
 def publish_threads_post(session: Session, card_id: int) -> ContentCard:
@@ -106,8 +144,7 @@ def get_threads_posts_for_product(session: Session, product_id: int) -> list[Thr
     return list(session.exec(statement))
 
 def auto_select_and_publish(session: Session, posts: list[ThreadsPost]) -> ContentCard:
-    """Skips manual review — picks the first generated variant and
+    """Skips manual review - picks the first generated variant and
     publishes it immediately. Used by the one-click pipeline when
     auto-publish is enabled."""
-    card = select_threads_post(session, posts[0].id)
-    return publish_threads_post(session, card.id)
+    return post_threads_post_now(session, posts[0].id)

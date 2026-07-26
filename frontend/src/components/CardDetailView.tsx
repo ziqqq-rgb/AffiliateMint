@@ -72,7 +72,7 @@ export function CardDetailView({ cardId, onBack }: Props) {
       <PipelinePanel card={card} dossier={latestDossier} hasScripts={hasContent} onChange={load} />
 
       {isShopee ? (
-        threadsPosts.length > 0 && <ThreadsPanel card={card} posts={threadsPosts} onChange={load} />
+        threadsPosts.length > 0 && <ThreadsPanel posts={threadsPosts} onChange={load} />
       ) : (
         scripts.length > 0 && (
           <ScriptPanel scripts={scripts} onChange={load} onOpenTeleprompter={setTeleprompterScript} />

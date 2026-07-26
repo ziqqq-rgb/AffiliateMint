@@ -59,10 +59,14 @@ export const api = {
   }),
 
   listThreadsForProduct: (productId: number) => request<ThreadsPost[]>(`/threads/product/${productId}`),
-  selectThreadsPost: (postId: number) =>
-    request<ContentCard>(`/threads/posts/${postId}/select`, { method: "POST" }),
-  publishThreadsPost: (cardId: number) =>
-    request<ContentCard>(`/threads/${cardId}/publish`, { method: "POST" }),
+  updateThreadsPost: (postId: number, postText: string) =>
+  request<ThreadsPost>(`/threads/posts/${postId}`, {
+    method: "PUT",
+    body: JSON.stringify({ post_text: postText }),
+  }),
+
+  postThreadsPostNow: (postId: number) =>
+  request<ContentCard>(`/threads/posts/${postId}/post-now`, { method: "POST" }),
 
   // History tab - was missing, which broke the History page too
   listEarningsForCard: (cardId: number) => request<EarningsEntry[]>(`/earnings/card/${cardId}`),
