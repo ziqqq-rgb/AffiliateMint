@@ -5,6 +5,7 @@ from sqlmodel import Session
 from app.db import get_session
 from app.models import ScrapedProduct
 from app.services.shopee_pipeline import ShopeeScrapingService, save_shopee_products
+from app.services.scraping_pipeline import save_scraped_products
 
 router = APIRouter(prefix="/shopee", tags=["shopee"])
 
@@ -19,8 +20,8 @@ class ShopeeScrapeRequest(BaseModel):
 @router.post("/scrape", response_model=list[ScrapedProduct])
 async def trigger_scrape(payload: ShopeeScrapeRequest, session: Session = Depends(get_session)):
     result = await ShopeeScrapingService.run_async_pipeline(
-        payload.min_commission_rate, payload.min_rating, payload.min_price, payload.max_price
+        session, payload.min_commission_rate, payload.min_rating, payload.min_price, payload.max_price
     )
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["error"])
-    return save_shopee_products(session, result["items"])
+    return save_scraped_products(session, result["items"])

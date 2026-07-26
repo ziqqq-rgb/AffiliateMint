@@ -6,7 +6,6 @@ import json
 import logging
 
 from sqlmodel import Session, select
-
 from app.models import Platform, ScrapedProduct
 from app.services.pipeline import ensure_card_for_product
 from scraper.shopee.run import run_shopee_scraper
@@ -68,17 +67,24 @@ def save_shopee_products(session: Session, items: list[dict]) -> list[ScrapedPro
 class ShopeeScrapingService:
     @staticmethod
     def _execute_sync_scrape(
+        session: Session,   # NEW - needed to look up known IDs
         min_commission_rate: float | None,
         min_rating: float | None,
         min_price: float | None,
         max_price: float | None,
     ) -> dict:
         try:
+            known_ids = set(
+                session.exec(
+                    select(ScrapedProduct.tiktok_product_id).where(ScrapedProduct.platform == Platform.SHOPEE)
+                ).all()
+            )
             items = run_shopee_scraper(
                 min_commission_rate=min_commission_rate,
                 min_rating=min_rating,
                 min_price=min_price,
                 max_price=max_price,
+                known_item_ids=known_ids,
             )
             return {"success": True, "items": items}
         except Exception as e:
@@ -88,11 +94,12 @@ class ShopeeScrapingService:
     @classmethod
     async def run_async_pipeline(
         cls,
+        session: Session,
         min_commission_rate: float | None = None,
         min_rating: float | None = None,
         min_price: float | None = None,
         max_price: float | None = None,
     ) -> dict:
         return await asyncio.to_thread(
-            cls._execute_sync_scrape, min_commission_rate, min_rating, min_price, max_price
+            cls._execute_sync_scrape, session, min_commission_rate, min_rating, min_price, max_price
         )

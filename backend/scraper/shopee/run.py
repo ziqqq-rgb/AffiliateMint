@@ -24,9 +24,11 @@ def run_shopee_scraper(
     min_rating: float | None = None,
     min_price: float | None = None,
     max_price: float | None = None,
+    known_item_ids: set[str] | None = None,   # NEW
 ) -> list[dict]:
     driver = Driver(uc=True, incognito=False, headless=False)
     captured_offers: dict[str, dict] = {}
+    known_item_ids = known_item_ids or set()
 
     try:
         load_cookies(driver, config.offer_page_url, SESSION_FILE)
@@ -58,12 +60,10 @@ def run_shopee_scraper(
                 page.goto(config.offer_page_url)
                 page.wait_for_timeout(2500)
 
-            # Resolve once here so the early-stop check during pagination
-            # respects the SAME threshold the final filter will use.
             effective_min_commission = (
                 min_commission_rate if min_commission_rate is not None else config.min_commission_rate
             )
-            _harvest_pages(page, captured_offers, effective_min_commission)
+            _harvest_pages(page, captured_offers, effective_min_commission, known_item_ids)
 
             shortlist = apply_filters(
                 list(captured_offers.values()),
@@ -71,6 +71,7 @@ def run_shopee_scraper(
                 min_rating=min_rating,
                 min_price=min_price,
                 max_price=max_price,
+                known_item_ids=known_item_ids,  
             )
             browser.close()
             return shortlist
@@ -78,17 +79,19 @@ def run_shopee_scraper(
         driver.quit()
 
 
-def _harvest_pages(page, captured_offers: dict[str, dict], min_commission_rate: float) -> None:
+def _harvest_pages(
+    page, captured_offers: dict[str, dict], min_commission_rate: float, known_item_ids: set[str]
+) -> None:
     scroll_to_bottom(page)
     fetch_links_for_page(page, list(captured_offers.values()))  # page 1
 
     for page_num in range(2, config.max_pages + 1):
-        if _enough_candidates(captured_offers, min_commission_rate):
-            print(f"  -> Enough qualifying offers found, stopping early.")
+        if _enough_new_candidates(captured_offers, min_commission_rate, known_item_ids):
+            print(f"  -> Enough NEW qualifying offers found, stopping early.")
             return
 
         print(f"  -> Harvesting page {page_num}/{config.max_pages} ({len(captured_offers)} offers so far)...")
-        before_ids = set(captured_offers.keys())
+        before_ids = list(captured_offers.keys())  # list, not set - order must survive
 
         human_pause(config.min_delay_seconds, config.max_delay_seconds)
         if not go_to_page(page, page_num):
@@ -96,12 +99,21 @@ def _harvest_pages(page, captured_offers: dict[str, dict], min_commission_rate: 
             return
         page.wait_for_timeout(2000)
 
-        new_ids = set(captured_offers.keys()) - before_ids
+        new_ids = [i for i in captured_offers.keys() if i not in before_ids]
         new_offers = [captured_offers[i] for i in new_ids]
         if new_offers:
             fetch_links_for_page(page, new_offers)
 
 
-def _enough_candidates(offers: dict[str, dict], min_commission_rate: float) -> bool:
-    passing = [o for o in offers.values() if o.get("commission_rate_pct", 0) >= min_commission_rate]
+def _enough_new_candidates(
+    offers: dict[str, dict], min_commission_rate: float, known_item_ids: set[str]
+) -> bool:
+    """Only counts offers we haven't already scraped before - stopping
+    early on offers we already have doesn't help the operator find
+    anything new, it just re-serves the same shortlist every run."""
+    passing = [
+        o for o in offers.values()
+        if o.get("commission_rate_pct", 0) >= min_commission_rate
+        and o["shopee_item_id"] not in known_item_ids
+    ]
     return len(passing) >= config.shortlist_size

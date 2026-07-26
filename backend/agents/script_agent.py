@@ -5,8 +5,7 @@ Before writing, checks Hermes' own memory ledger for past scripts and
 logged performance on similar products/angles, and nudges the prompt
 toward whatever worked before (design doc 3.2, FR-3.4).
 """
-import json
-
+from agents.dossier_format import format_deep_research, format_usps
 from agents.memory import search_similar_performance
 from app.models import ResearchDossier
 from agents.providers.gemini_client import run_task
@@ -26,9 +25,13 @@ just restate the same USP three times):
 Positive reviews say: {review_summary_positive}
 Negative reviews say: {review_summary_negative}
 
-Ingredient/science research (use this for credibility where relevant -
-keep claims hedged, e.g. "may support...", not definitive medical claims):
-{ingredients_research}
+Deep research (material tech, brand/model heritage, certifications, or
+ingredients - whichever applies to this product): use this as a
+credibility booster woven INTO a hook or USP where it genuinely
+strengthens the pitch (e.g. "since 1966" for a heritage sneaker, or
+"IP68-rated" for electronics) - don't force it into every angle if it
+only naturally fits one:
+{deep_research}
 
 Past-performance notes (favor these angles/hooks when relevant):
 {memory_notes}
@@ -36,22 +39,6 @@ Past-performance notes (favor these angles/hooks when relevant):
 Return a JSON list of 3 objects, each with keys:
 angle_type, hook_ms, body_ms, cta_ms, caption_ms, hashtags (list), visual_notes.
 """
-
-
-def _format_usps(dossier: ResearchDossier) -> str:
-    """usps is stored as a JSON-encoded list of 3 strings - render as a
-    simple bullet list for the prompt."""
-    return "\n".join(f"- {usp}" for usp in json.loads(dossier.usps))
-
-
-def _format_ingredients_research(dossier: ResearchDossier) -> str:
-    topics = json.loads(dossier.ingredients_research or "[]")
-    if not topics:
-        return "No ingredient/science research for this product."
-    return "\n\n".join(
-        f"{t['topic']}: {t['what_it_is']} {t['how_it_works']} Best for: {t['who_benefits']}"
-        for t in topics
-    )
 
 
 def generate_scripts(dossier: ResearchDossier) -> list[dict]:
@@ -62,10 +49,10 @@ def generate_scripts(dossier: ResearchDossier) -> list[dict]:
     prompt = SCRIPT_PROMPT_TEMPLATE.format(
         what_it_does=dossier.what_it_does,
         key_benefits=dossier.key_benefits,
-        usps=_format_usps(dossier),
+        usps=format_usps(dossier),
         review_summary_positive=dossier.review_summary_positive,
         review_summary_negative=dossier.review_summary_negative,
-        ingredients_research=_format_ingredients_research(dossier),
+        deep_research=format_deep_research(dossier),
         memory_notes=memory_notes,
     )
     return run_task(prompt, expects_json=True)
