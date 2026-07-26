@@ -1,7 +1,5 @@
 import {
-  CardStatus,
   ContentCard,
-  DashboardSummary,
   EarningsEntry,
   ResearchDossier,
   ScrapedProduct,
@@ -50,9 +48,6 @@ export const api = {
     scriptId: number,
     body: Partial<Pick<ScriptVariation, "hook_ms" | "body_ms" | "cta_ms" | "caption_ms" | "visual_notes">>,
   ) => request<ScriptVariation>(`/scripts/${scriptId}`, { method: "PUT", body: JSON.stringify(body) }),
-
-  // Dashboard tab - was missing, which broke the Dashboard page entirely
-  getDashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
 
   runShopeeScraper: (filters: ShopeeScrapeFilters = EMPTY_SHOPEE_FILTERS) =>
     request<ScrapedProduct[]>("/shopee/scrape", {

@@ -15,6 +15,7 @@ import { PlatformTabs } from "./PlatformTabs";
 import { Spinner } from "./Spinner";
 
 const SCRAPE_URL = "https://shop.tiktok.com/my";
+const REMOVE_ANIMATION_MS = 320;
 
 export function KanbanBoard() {
   const [platform, setPlatform] = useState<Platform>("tiktok");
@@ -28,6 +29,7 @@ export function KanbanBoard() {
   const [filters, setFilters] = useState<ScrapeFilters>(EMPTY_FILTERS);
   const [shopeeFilters, setShopeeFilters] = useState<ShopeeScrapeFilters>(EMPTY_SHOPEE_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
+  const [removingIds, setRemovingIds] = useState<Set<number>>(new Set());
 
   async function loadBoard() {
     setLoading(true);
@@ -89,14 +91,24 @@ export function KanbanBoard() {
   }
 
   async function handleAddToProgress(cardId: number) {
-    setAddingId(cardId);
-    try {
-      await api.addCardToProgress(cardId);
+  setAddingId(cardId);
+  try {
+    await api.addCardToProgress(cardId);
+    // Card stays in the list but visibly animates out first - removing it
+    // from state immediately after the API call felt like a glitch.
+    setRemovingIds((prev) => new Set(prev).add(cardId));
+    setTimeout(() => {
       setCards((prev) => prev.filter((c) => c.id !== cardId));
-    } finally {
-      setAddingId(null);
-    }
+      setRemovingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(cardId);
+        return next;
+      });
+    }, REMOVE_ANIMATION_MS);
+  } finally {
+    setAddingId(null);
   }
+}
 
   const activeFilterCount =
     platform === "shopee"
@@ -157,6 +169,7 @@ export function KanbanBoard() {
               card={card}
               product={products[card.product_id]}
               busy={addingId === card.id}
+              isRemoving={removingIds.has(card.id)}
               onAddToProgress={handleAddToProgress}
             />
           ))}

@@ -5,12 +5,17 @@ interface Props {
   card: ContentCardType;
   product?: ScrapedProduct;
   busy: boolean;
+  isRemoving: boolean;
   onAddToProgress: (cardId: number) => void;
 }
 
-export function BoardProductCard({ card, product, busy, onAddToProgress }: Props) {
+export function BoardProductCard({ card, product, busy, isRemoving, onAddToProgress }: Props) {
   return (
-    <div className="flex w-full items-center gap-4 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div
+      className={`flex w-full items-center gap-4 rounded-xl border border-gray-200 bg-white p-3 shadow-sm transition-all duration-300 ease-in ${
+        isRemoving ? "pointer-events-none -translate-x-3 scale-95 opacity-0" : "translate-x-0 scale-100 opacity-100"
+      }`}
+    >
       {product?.image_url && (
         <img src={product.image_url} alt={product.title} className="h-20 w-20 shrink-0 rounded-lg object-cover" />
       )}
@@ -28,10 +33,10 @@ export function BoardProductCard({ card, product, busy, onAddToProgress }: Props
       </div>
       <button
         onClick={() => onAddToProgress(card.id)}
-        disabled={busy}
-        className="shrink-0 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+        disabled={busy || isRemoving}
+        className="shrink-0 rounded-lg border-2 border-gray-900 bg-transparent px-3 py-2 text-xs font-medium text-gray-900 transition hover:bg-gray-900 hover:text-white disabled:opacity-50"
       >
-        {busy ? "Adding..." : "Work on this"}
+        {isRemoving ? "Added ✓" : busy ? "Adding..." : "Work on this"}
       </button>
     </div>
   );
