@@ -63,7 +63,9 @@ export function PipelinePanel({ card, dossier, hasScripts, onChange }: Props) {
   }
 
   if (!dossier) return null;
+
   const benefits: string[] = JSON.parse(dossier.key_benefits);
+  const usps: string[] = JSON.parse(dossier.usps);
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-4">
@@ -74,9 +76,16 @@ export function PipelinePanel({ card, dossier, hasScripts, onChange }: Props) {
           <li key={b}>{b}</li>
         ))}
       </ul>
-      <p className="mt-2 text-sm">
-        <span className="font-medium">USP:</span> {dossier.usp}
-      </p>
+
+      <div className="mt-2 text-sm">
+        <span className="font-medium">USPs:</span>
+        <ul className="mt-1 list-inside list-disc text-gray-700">
+          {usps.map((u) => (
+            <li key={u}>{u}</li>
+          ))}
+        </ul>
+      </div>
+
       <p className="mt-2 text-sm text-emerald-700">
         <span className="font-medium">Reviewers like:</span> {dossier.review_summary_positive}
       </p>

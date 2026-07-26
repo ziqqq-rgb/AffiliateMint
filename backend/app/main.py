@@ -21,7 +21,8 @@ for router in (
     shopee.router, threads.router,
 ):
     api_router.include_router(router)
-    app.include_router(api_router)
+    
+app.include_router(api_router)
 
 
 @app.on_event("startup")

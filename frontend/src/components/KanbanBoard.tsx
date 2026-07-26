@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import type { ContentCard as ContentCardType, Platform, ScrapedProduct, ScrapeFilters } from "../types";
-import { EMPTY_FILTERS } from "../types";
+import type {
+  ContentCard as ContentCardType,
+  Platform,
+  ScrapedProduct,
+  ScrapeFilters,
+  ShopeeScrapeFilters,
+} from "../types";
+import { EMPTY_FILTERS, EMPTY_SHOPEE_FILTERS } from "../types";
 import { BoardProductCard } from "./BoardProductCard";
 import { FilterPanel } from "./FilterPanel";
+import { ShopeeFilterPanel } from "./ShopeeFilterPanel";
 import { PlatformTabs } from "./PlatformTabs";
 import { Spinner } from "./Spinner";
 
@@ -19,6 +26,7 @@ export function KanbanBoard() {
   const [addingId, setAddingId] = useState<number | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ScrapeFilters>(EMPTY_FILTERS);
+  const [shopeeFilters, setShopeeFilters] = useState<ShopeeScrapeFilters>(EMPTY_SHOPEE_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
 
   async function loadBoard() {
@@ -33,9 +41,6 @@ export function KanbanBoard() {
     loadBoard();
   }, []);
 
-  // Cards for the OTHER platform are just filtered out of view here -
-  // no separate fetch needed since /products/ and /cards/ already
-  // return everything; platform lives on the joined ScrapedProduct.
   const visibleCards = useMemo(
     () => cards.filter((c) => products[c.product_id]?.platform === platform),
     [cards, products, platform],
@@ -54,7 +59,7 @@ export function KanbanBoard() {
     setScrapeError(null);
     try {
       if (platform === "shopee") {
-        await api.runShopeeScraper();
+        await api.runShopeeScraper(shopeeFilters);
       } else {
         await api.runScraper(SCRAPE_URL, filters);
       }
@@ -93,7 +98,10 @@ export function KanbanBoard() {
     }
   }
 
-  const activeFilterCount = Object.values(filters).filter((v) => v !== null && v !== false).length;
+  const activeFilterCount =
+    platform === "shopee"
+      ? Object.values(shopeeFilters).filter((v) => v !== null).length
+      : Object.values(filters).filter((v) => v !== null && v !== false).length;
 
   return (
     <div className="p-4">
@@ -101,16 +109,14 @@ export function KanbanBoard() {
         <PlatformTabs active={platform} onChange={setPlatform} counts={counts} />
         <div className="flex items-center gap-3">
           {scrapeError && <p className="text-xs text-red-600">{scrapeError}</p>}
-          {platform === "tiktok" && (
-            <button
-              onClick={() => setShowFilters((v) => !v)}
-              className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
-                showFilters ? "border-gray-900 text-gray-900" : "border-gray-300 text-gray-700 hover:bg-gray-50"
-              }`}
-            >
-              Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-            </button>
-          )}
+          <button
+            onClick={() => setShowFilters((v) => !v)}
+            className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
+              showFilters ? "border-gray-900 text-gray-900" : "border-gray-300 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+          </button>
           <button
             onClick={handleClearScrape}
             disabled={clearing}
@@ -132,8 +138,11 @@ export function KanbanBoard() {
         {visibleCards.length} product{visibleCards.length === 1 ? "" : "s"} awaiting review
       </p>
 
-      {platform === "tiktok" && showFilters && (
+      {showFilters && platform === "tiktok" && (
         <FilterPanel filters={filters} onChange={setFilters} onClose={() => setShowFilters(false)} />
+      )}
+      {showFilters && platform === "shopee" && (
+        <ShopeeFilterPanel filters={shopeeFilters} onChange={setShopeeFilters} onClose={() => setShowFilters(false)} />
       )}
 
       {loading ? (

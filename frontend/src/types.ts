@@ -32,14 +32,15 @@ export interface ResearchDossier {
   id: number;
   product_id: number;
   what_it_does: string;
-  key_benefits: string; // JSON-encoded list - JSON.parse before rendering
-  usp: string;
+  key_benefits: string;
+  usps: string;         
   review_summary_positive: string;
   review_summary_negative: string;
   status: "pending" | "approved" | "rejected";
   rejection_reason: string | null;
   created_at: string;
 }
+
 
 export interface ScriptVariation {
   id: number;
@@ -49,7 +50,7 @@ export interface ScriptVariation {
   body_ms: string;
   cta_ms: string;
   caption_ms: string;
-  hashtags: string; // JSON-encoded list - JSON.parse before rendering
+  hashtags: string; 
   visual_notes: string;
   is_selected: boolean;
 }
@@ -111,3 +112,17 @@ export interface ThreadsPost {
   posted_at: string | null;
   threads_post_id: string | null;
 }
+
+export interface ShopeeScrapeFilters {
+  min_commission_rate: number | null;
+  min_rating: number | null;
+  min_price: number | null;
+  max_price: number | null;
+}
+
+export const EMPTY_SHOPEE_FILTERS: ShopeeScrapeFilters = {
+  min_commission_rate: null,
+  min_rating: null,
+  min_price: null,
+  max_price: null,
+};

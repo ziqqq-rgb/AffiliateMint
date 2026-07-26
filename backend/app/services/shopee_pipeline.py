@@ -67,13 +67,32 @@ def save_shopee_products(session: Session, items: list[dict]) -> list[ScrapedPro
 
 class ShopeeScrapingService:
     @staticmethod
-    def _execute_sync_scrape(min_commission_rate: float | None) -> dict:
+    def _execute_sync_scrape(
+        min_commission_rate: float | None,
+        min_rating: float | None,
+        min_price: float | None,
+        max_price: float | None,
+    ) -> dict:
         try:
-            return {"success": True, "items": run_shopee_scraper(min_commission_rate)}
+            items = run_shopee_scraper(
+                min_commission_rate=min_commission_rate,
+                min_rating=min_rating,
+                min_price=min_price,
+                max_price=max_price,
+            )
+            return {"success": True, "items": items}
         except Exception as e:
             logger.error(f"Shopee scrape failed: {e}")
             return {"success": False, "error": str(e)}
 
     @classmethod
-    async def run_async_pipeline(cls, min_commission_rate: float | None = None) -> dict:
-        return await asyncio.to_thread(cls._execute_sync_scrape, min_commission_rate)
+    async def run_async_pipeline(
+        cls,
+        min_commission_rate: float | None = None,
+        min_rating: float | None = None,
+        min_price: float | None = None,
+        max_price: float | None = None,
+    ) -> dict:
+        return await asyncio.to_thread(
+            cls._execute_sync_scrape, min_commission_rate, min_rating, min_price, max_price
+        )

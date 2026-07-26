@@ -1,4 +1,4 @@
-import type {
+import {
   CardStatus,
   ContentCard,
   DashboardSummary,
@@ -8,6 +8,8 @@ import type {
   ScrapeFilters,
   ScriptVariation,
   ThreadsPost,
+  ShopeeScrapeFilters,
+  EMPTY_SHOPEE_FILTERS,
 } from "./types";
 
 const BASE = "/api";
@@ -52,11 +54,11 @@ export const api = {
   // Dashboard tab - was missing, which broke the Dashboard page entirely
   getDashboardSummary: () => request<DashboardSummary>("/dashboard/summary"),
 
-  runShopeeScraper: (minCommissionRate?: number) =>
-  request<ScrapedProduct[]>("/shopee/scrape", {
-    method: "POST",
-    body: JSON.stringify({ min_commission_rate: minCommissionRate ?? null }),
-  }),
+  runShopeeScraper: (filters: ShopeeScrapeFilters = EMPTY_SHOPEE_FILTERS) =>
+    request<ScrapedProduct[]>("/shopee/scrape", {
+      method: "POST",
+      body: JSON.stringify(filters),
+    }),
 
   listThreadsForProduct: (productId: number) => request<ThreadsPost[]>(`/threads/product/${productId}`),
   updateThreadsPost: (postId: number, postText: string) =>

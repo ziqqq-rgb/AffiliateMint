@@ -19,18 +19,13 @@ from scraper.pacing import human_pause
 SESSION_FILE = "shopee_affiliate_session.txt"
 
 
-def run_shopee_scraper(min_commission_rate: float | None = None) -> list[dict]:
+def run_shopee_scraper(
+    min_commission_rate: float | None = None,
+    min_rating: float | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
+) -> list[dict]:
     driver = Driver(uc=True, incognito=False, headless=False)
-
-    # Keyed by shopee_item_id, NOT a plain list - the offer-list endpoint
-    # can fire more than once for the same page (SPA re-renders, hover
-    # prefetch, retries), which previously produced duplicate dict objects
-    # for the same product. fetch_links_for_page would mutate one of the
-    # duplicates while apply_filters' sort could return the OTHER,
-    # unmutated one - links looked "successfully fetched" in logs but
-    # never appeared in the final result. Keying by item id guarantees
-    # exactly one dict object per product, so the mutation is always
-    # visible in whatever gets returned.
     captured_offers: dict[str, dict] = {}
 
     try:
@@ -63,28 +58,39 @@ def run_shopee_scraper(min_commission_rate: float | None = None) -> list[dict]:
                 page.goto(config.offer_page_url)
                 page.wait_for_timeout(2500)
 
-            _harvest_pages(page, captured_offers)
+            # Resolve once here so the early-stop check during pagination
+            # respects the SAME threshold the final filter will use.
+            effective_min_commission = (
+                min_commission_rate if min_commission_rate is not None else config.min_commission_rate
+            )
+            _harvest_pages(page, captured_offers, effective_min_commission)
 
-            shortlist = apply_filters(list(captured_offers.values()))
+            shortlist = apply_filters(
+                list(captured_offers.values()),
+                min_commission_rate=min_commission_rate,
+                min_rating=min_rating,
+                min_price=min_price,
+                max_price=max_price,
+            )
             browser.close()
             return shortlist
     finally:
         driver.quit()
 
 
-def _harvest_pages(page, captured_offers: dict[str, dict]) -> None:
+def _harvest_pages(page, captured_offers: dict[str, dict], min_commission_rate: float) -> None:
     scroll_to_bottom(page)
     fetch_links_for_page(page, list(captured_offers.values()))  # page 1
 
     for page_num in range(2, config.max_pages + 1):
-        if _enough_candidates(captured_offers):
+        if _enough_candidates(captured_offers, min_commission_rate):
             print(f"  -> Enough qualifying offers found, stopping early.")
             return
 
         print(f"  -> Harvesting page {page_num}/{config.max_pages} ({len(captured_offers)} offers so far)...")
         before_ids = set(captured_offers.keys())
 
-        human_pause(config.min_delay_seconds, config.max_delay_seconds)  # <-- new, before turning the page
+        human_pause(config.min_delay_seconds, config.max_delay_seconds)
         if not go_to_page(page, page_num):
             print(f"  -> Page {page_num} not available - stopping.")
             return
@@ -96,6 +102,6 @@ def _harvest_pages(page, captured_offers: dict[str, dict]) -> None:
             fetch_links_for_page(page, new_offers)
 
 
-def _enough_candidates(offers: dict[str, dict]) -> bool:
-    passing = [o for o in offers.values() if o.get("commission_rate_pct", 0) >= config.min_commission_rate]
+def _enough_candidates(offers: dict[str, dict], min_commission_rate: float) -> bool:
+    passing = [o for o in offers.values() if o.get("commission_rate_pct", 0) >= min_commission_rate]
     return len(passing) >= config.shortlist_size
