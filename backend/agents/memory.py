@@ -8,6 +8,7 @@ this worked before?" That's a deliberately honest scope, matching the
 doc's own risk notes.
 """
 
+import json
 import re
 import sqlite3
 from pathlib import Path
@@ -42,6 +43,13 @@ def _sanitize_fts_query(text: str) -> str:
     return " ".join(words)
 
 
+def _dossier_search_text(dossier) -> str:
+    """dossier.usps is a JSON-encoded list of 3 strings - flatten to one
+    string for the FTS query, same role `dossier.usp` played before the
+    single-USP -> 3-USP change."""
+    return " ".join(json.loads(dossier.usps))
+
+
 def remember_performance(script, earnings) -> None:
     """Called from app/services/feedback.py once earnings are logged
     (FR-3.4 feedback loop)."""
@@ -63,9 +71,9 @@ def remember_performance(script, earnings) -> None:
 
 def search_similar_performance(dossier, limit: int = 3) -> str:
     """Full-text search for past hooks/angles related to this product's
-    USP. Returns a short plain-text summary the script prompt can drop
+    USPs. Returns a short plain-text summary the script prompt can drop
     in directly."""
-    query = _sanitize_fts_query(dossier.usp)
+    query = _sanitize_fts_query(_dossier_search_text(dossier))
     if not query:
         return ""
 
@@ -111,9 +119,9 @@ def remember_threads_edit(post) -> None:
 
 def search_similar_threads_posts(dossier, limit: int = 3) -> str:
     """Full-text search over past kept/edited Threads posts related to
-    this product's USP - feeds threads_agent's prompt, same role as
+    this product's USPs - feeds threads_agent's prompt, same role as
     search_similar_performance() for the script prompt."""
-    query = _sanitize_fts_query(dossier.usp)
+    query = _sanitize_fts_query(_dossier_search_text(dossier))
     if not query:
         return ""
 

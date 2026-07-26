@@ -5,6 +5,7 @@ Before writing, checks Hermes' own memory ledger for past scripts and
 logged performance on similar products/angles, and nudges the prompt
 toward whatever worked before (design doc 3.2, FR-3.4).
 """
+import json
 
 from agents.memory import search_similar_performance
 from app.models import ResearchDossier
@@ -19,7 +20,9 @@ and plain-language visual_notes (what to film, in what order).
 
 What it does: {what_it_does}
 Key benefits: {key_benefits}
-USP: {usp}
+USPs (each angle below should lean on a DIFFERENT one of these - don't
+just restate the same USP three times):
+{usps}
 Positive reviews say: {review_summary_positive}
 Negative reviews say: {review_summary_negative}
 
@@ -31,6 +34,12 @@ angle_type, hook_ms, body_ms, cta_ms, caption_ms, hashtags (list), visual_notes.
 """
 
 
+def _format_usps(dossier: ResearchDossier) -> str:
+    """usps is stored as a JSON-encoded list of 3 strings - render as a
+    simple bullet list for the prompt."""
+    return "\n".join(f"- {usp}" for usp in json.loads(dossier.usps))
+
+
 def generate_scripts(dossier: ResearchDossier) -> list[dict]:
     """Calls Hermes to write 3 script variations for one approved dossier."""
 
@@ -39,7 +48,7 @@ def generate_scripts(dossier: ResearchDossier) -> list[dict]:
     prompt = SCRIPT_PROMPT_TEMPLATE.format(
         what_it_does=dossier.what_it_does,
         key_benefits=dossier.key_benefits,
-        usp=dossier.usp,
+        usps=_format_usps(dossier),
         review_summary_positive=dossier.review_summary_positive,
         review_summary_negative=dossier.review_summary_negative,
         memory_notes=memory_notes,

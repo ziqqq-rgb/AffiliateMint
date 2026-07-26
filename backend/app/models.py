@@ -73,7 +73,7 @@ class ResearchDossier(SQLModel, table=True):
     product_id: int = Field(foreign_key="scrapedproduct.id")
     what_it_does: str
     key_benefits: str  # JSON-encoded list - SQLite has no native array type
-    usp: str
+    usps: str  # JSON-encoded list of exactly 3 distinct differentiators (renamed from `usp`)
     review_summary_positive: str
     review_summary_negative: str
     status: ResearchStatus = ResearchStatus.PENDING

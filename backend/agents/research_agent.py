@@ -26,8 +26,15 @@ from the rating, price, title, and units sold. Do not invent direct
 quotes or specific claims attributed to reviewers.
 
 Return JSON with exactly these keys:
-what_it_does, key_benefits (list of 3-5 strings), usp,
-review_summary_positive, review_summary_negative.
+- what_it_does (string)
+- key_benefits (list of 3-5 strings)
+- usps (list of EXACTLY 3 strings). Each one must be a genuinely
+  different reason to buy - draw them from different angles, e.g.
+  one on price/value, one on a functional feature, one on a
+  quality/trust signal (rating, units sold, discount depth). Do not
+  submit 3 rewordings of the same point.
+- review_summary_positive (string)
+- review_summary_negative (string)
 """
 
 
