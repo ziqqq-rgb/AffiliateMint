@@ -31,9 +31,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.6-flash"
 
+    firecrawl_api_key: str = ""
+
     class Config:
         env_file = ".env"
-        extra = "ignore"  # tolerate leftover keys in .env from before this restructure
+        extra = "ignore" 
 
 
 settings = Settings()
