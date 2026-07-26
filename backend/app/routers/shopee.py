@@ -5,7 +5,6 @@ from sqlmodel import Session
 from app.db import get_session
 from app.models import ScrapedProduct
 from app.services.shopee_pipeline import ShopeeScrapingService, save_shopee_products
-from app.services.scraping_pipeline import save_scraped_products
 
 router = APIRouter(prefix="/shopee", tags=["shopee"])
 
@@ -24,4 +23,5 @@ async def trigger_scrape(payload: ShopeeScrapeRequest, session: Session = Depend
     )
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["error"])
-    return save_scraped_products(session, result["items"])
+ 
+    return save_shopee_products(session, result["items"])

@@ -23,13 +23,23 @@ Health/ingredient claims carry real regulatory risk - the synthesis
 prompt asks for hedged, sourced language ONLY for that kind of topic.
 Material/heritage topics don't need medical hedging, so the prompt
 tells the model to match tone to topic type.
+
+IMPORTANT: this whole module is best-effort. A failure here (Firecrawl
+down, LLM returned bad JSON) must never break the main dossier - it
+should just mean this product gets no deep-research section this run.
+Every external call below is wrapped and logged so "no topics" (LLM's
+genuine judgment) can be told apart from "topic dropped due to an
+error" by reading the logs, instead of re-running and guessing.
 """
 import json
+import logging
 
 from agents.market_context import clean_markdown
 from agents.providers.firecrawl_client import search
 from agents.providers.nvidia_client import run_task
 from app.models import ScrapedProduct
+
+logger = logging.getLogger(__name__)
 
 MAX_TOPICS = 3
 REQUEST_LIMIT_PER_TOPIC = 8
@@ -40,23 +50,39 @@ TOPIC_EXTRACTION_PROMPT = """\
 Product title: {title}
 Raw listing data: {raw_payload}
 
-Does this product have a genuine differentiator worth researching in
-depth - something beyond its price, rating, or units sold that would
-give a content creator a credible, specific detail to mention?
+Identify up to {max_topics} SPECIFIC topics worth researching in depth -
+things beyond price/rating/units sold that give a Malaysian affiliate
+content creator a credible, nameable detail to mention in a video or post.
 
-This can be ANY of these, whichever actually fits the product:
-- Active ingredients/compounds (e.g. "retinol", "ashwagandha" - skincare, supplements)
-- Material technology (e.g. "ripstop nylon", "aluminum alloy frame", a fabric's tech name)
-- Brand or model heritage (e.g. a sneaker model's design history/year of origin)
-- Certifications or standards (e.g. "IP68 water resistance", "OEKO-TEX certified")
+Match the research angle to what the product actually is:
+- Skincare, supplements, food/health -> active ingredients or compounds
+  (e.g. "niacinamide", "ashwagandha", "collagen peptides")
+- Clothing, fashion, traditional/cultural wear -> the specific fabric or
+  weave (e.g. "songket weave", "cotton pique"), the garment style or
+  silhouette name (e.g. "peplum cut", "baju kurung", "kebaya"), or
+  cultural/occasion significance (e.g. "Merdeka Day baju kurung
+  traditions", "Raya baju melayu history")
+- Electronics, gadgets, appliances -> technical specs or standards
+  (e.g. "IP68 water resistance", "USB-C PD fast charging", battery chemistry)
+- Footwear, bags, accessories -> material tech (e.g. "EVA midsole",
+  "ripstop nylon") or brand/model heritage
+- Home, furniture, kitchenware -> material or functional design
+  (e.g. "food-grade silicone", "non-stick ceramic coating")
+- Anything else -> whatever concrete, specific, nameable detail is
+  actually present in the title/listing data - a named material, a
+  named style, a named process, a named standard
 
-Most generic/commodity products (plain phone cases, basic accessories,
-unbranded homeware) have NOTHING here - only flag genuinely researchable
-topics, don't force one.
+Only return [] if the product is genuinely generic with no identifiable
+detail at all (e.g. "assorted plastic clip", "random sticker pack").
+Almost every real product - including plain clothing - has at least ONE
+specific, nameable thing worth digging into (a fabric, a cut, a cultural
+context, a use-case). Don't force three topics if only one genuinely
+fits, but don't default to [] just because the product isn't a
+supplement or a gadget.
 
-Return a JSON list of up to {max_topics} topic strings, as specific as
-possible (e.g. ["Onitsuka Tiger Mexico 66 heritage"], ["ripstop nylon fabric"],
-["ashwagandha"]). Return an empty list [] if nothing is worth researching.
+Return a JSON list of up to {max_topics} topic strings, each as specific
+as possible (e.g. ["peplum cut baju kurung Merdeka theme"], ["ripstop
+nylon fabric"], ["ashwagandha"]).
 """
 
 SYNTHESIS_PROMPT = """\
@@ -86,21 +112,42 @@ Return JSON with exactly these keys:
 
 
 def _extract_research_topics(product: ScrapedProduct) -> list[str]:
+    """Returns [] both when the LLM genuinely found nothing researchable
+    AND when the call itself failed (bad JSON, API error) - the two
+    cases are told apart in the logs, not by the return value, since
+    callers should treat both identically (no deep research this run)."""
     prompt = TOPIC_EXTRACTION_PROMPT.format(
         title=product.title,
         raw_payload=product.raw_payload,
         max_topics=MAX_TOPICS,
     )
-    topics = run_task(prompt, expects_json=True)
-    return topics[:MAX_TOPICS] if isinstance(topics, list) else []
+    try:
+        topics = run_task(prompt, expects_json=True)
+    except Exception as e:
+        logger.warning(f"[deep_research] Topic extraction failed for product {product.id}: {e}")
+        return []
+
+    if not isinstance(topics, list):
+        logger.warning(f"[deep_research] Topic extraction returned non-list for product {product.id}: {topics!r}")
+        return []
+
+    if not topics:
+        logger.info(f"[deep_research] No researchable topics found for product {product.id} ({product.title!r})")
+    else:
+        logger.info(f"[deep_research] Topics for product {product.id}: {topics[:MAX_TOPICS]}")
+
+    return topics[:MAX_TOPICS]
 
 
 def _gather_topic_context(topic: str) -> tuple[str, list[str]]:
     """Returns (cleaned_context_text, source_urls) for one topic, or
     ("", []) if nothing useful came back - callers skip synthesis
     entirely in that case rather than asking the LLM to write about
-    nothing."""
+    nothing. search() already logs its own failures/empty results."""
     results = search(f"{topic} explained", limit=REQUEST_LIMIT_PER_TOPIC)
+    if not results:
+        logger.warning(f"[deep_research] No search results for topic '{topic}' - dropping this topic")
+        return "", []
 
     blocks, sources = [], []
     for r in results:
@@ -111,6 +158,9 @@ def _gather_topic_context(topic: str) -> tuple[str, list[str]]:
         if len(blocks) >= MAX_RESULTS_PER_TOPIC:
             break
 
+    if not blocks:
+        logger.warning(f"[deep_research] Search returned results but no usable content for topic '{topic}'")
+
     return "\n\n".join(blocks), sources
 
 
@@ -119,15 +169,38 @@ def _research_one_topic(topic: str) -> dict | None:
     if not context:
         return None
 
-    data = run_task(SYNTHESIS_PROMPT.format(topic=topic, context=context), expects_json=True)
+    try:
+        data = run_task(SYNTHESIS_PROMPT.format(topic=topic, context=context), expects_json=True)
+    except Exception as e:
+        logger.warning(f"[deep_research] Synthesis failed for topic '{topic}': {e}")
+        return None
+
     return {**data, "topic": topic, "sources": sources}
 
 
 def build_deep_research(product: ScrapedProduct) -> str:
     """Returns a JSON-encoded list of topic dossiers, or "[]" if this
-    product had nothing genuinely worth deep-researching (or every
-    topic's search came back empty)."""
-    topics = _extract_research_topics(product)
+    product had nothing genuinely worth deep-researching, every topic's
+    search came back empty, or something failed along the way. This
+    function itself never raises - a broken deep-research run must
+    degrade to "[]" rather than blocking the rest of the dossier
+    (see _build_dossier in app/services/pipeline.py, which has no
+    try/except around this call and relies on that guarantee)."""
+    try:
+        topics = _extract_research_topics(product)
+        results = [entry for topic in topics if (entry := _research_one_topic(topic)) is not None]
+    except Exception as e:
+        # Belt-and-suspenders: _extract_research_topics and
+        # _research_one_topic already catch their own failures, but if
+        # anything unexpected slips through, deep research must still
+        # degrade gracefully rather than take down the whole dossier.
+        logger.error(f"[deep_research] Unexpected failure for product {product.id}: {e}")
+        return "[]"
 
-    results = [entry for topic in topics if (entry := _research_one_topic(topic)) is not None]
+    if topics and not results:
+        logger.warning(
+            f"[deep_research] Product {product.id}: {len(topics)} topic(s) identified "
+            "but none produced usable research (see warnings above)"
+        )
+
     return json.dumps(results)
