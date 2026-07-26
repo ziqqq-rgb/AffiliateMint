@@ -110,10 +110,10 @@ def _research_one_topic(topic: str) -> dict | None:
 
 
 def build_deep_research(product: ScrapedProduct) -> str:
-    """Returns a JSON-encoded list of topic dossiers, or "[]" if this
-    product had no ingredient/compound topics worth researching (or
-    every topic's search came back empty)."""
     topics = _extract_research_topics(product)
+    print(f"[DEEP RESEARCH] topics for '{product.title}': {topics}")   # ADD THIS
 
     results = [entry for topic in topics if (entry := _research_one_topic(topic)) is not None]
+    print(f"[DEEP RESEARCH] synthesized {len(results)}/{len(topics)} topics")   # ADD THIS
+
     return json.dumps(results)

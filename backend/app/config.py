@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     
     nvidia_api_base: str = "https://integrate.api.nvidia.com/v1/chat/completions"
     nvidia_api_key: str = ""
-    nvidia_model: str = "deepseek-ai/deepseek-v4-flash"
+    nvidia_model: str = "nvidia/nemotron-3-super-120b-a12b"
 
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta/models"
     gemini_api_key: str = ""
