@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { ContentCard, Platform, ScrapedProduct } from "../types";
 import { PlatformTabs } from "./PlatformTabs";
-import { PostedOverview } from "./PostedOverview";
+import { PlatformAnalytics } from "./PlatformAnalytics";
 import { Spinner } from "./Spinner";
 import { productSummaryLine } from "../lib/productSummaryLine";
 import { groupByDate } from "../lib/dateGroups";
@@ -51,7 +51,7 @@ export function ProgressView({ onOpenCard }: Props) {
     [visibleRows],
   );
 
-  if (loading) {
+   if (loading) {
     return (
       <div className="p-6">
         <Spinner label="Loading dashboard..." />
@@ -63,20 +63,18 @@ export function ProgressView({ onOpenCard }: Props) {
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <PlatformTabs active={platform} onChange={setPlatform} counts={counts} />
 
+      <PlatformAnalytics platform={platform} cards={visibleRows.map((r) => r.card)} />
+
       {visibleRows.length === 0 ? (
         <p className="text-sm text-gray-500">
           Nothing here yet - pick a product on the Board to start working on it.
         </p>
       ) : (
-        <>
-          <PostedOverview rows={visibleRows} onOpenCard={onOpenCard} />
-
-          <div className="space-y-10">
-            {dateGroups.map((group) => (
-              <DateSection key={group.label} label={group.label} rows={group.items} onOpenCard={onOpenCard} />
-            ))}
-          </div>
-        </>
+        <div className="space-y-10">
+          {dateGroups.map((group) => (
+            <DateSection key={group.label} label={group.label} rows={group.items} onOpenCard={onOpenCard} />
+          ))}
+        </div>
       )}
     </div>
   );
