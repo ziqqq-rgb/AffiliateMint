@@ -22,17 +22,16 @@ class Platform(str, Enum):
 
 
 class CardStatus(str, Enum):
-
     SCRAPED = "scraped"
     RESEARCHED_PENDING = "researched_pending"
     RESEARCH_APPROVED = "research_approved"
     SCRIPTED_PENDING = "scripted_pending"
     SCRIPT_APPROVED = "script_approved"
+    QUEUED = "queued"  
     FILMING = "filming"
     READY_TO_POST = "ready_to_post"
     POSTED = "posted"
     EARNINGS_LOGGED = "earnings_logged"
-
 
 class ScrapedProduct(SQLModel, table=True):
     """One product pulled from TikTok Shop's public website. FR-1.1 - FR-1.4.
@@ -131,5 +130,6 @@ class ThreadsPost(SQLModel, table=True):
     product_id: int = Field(foreign_key="scrapedproduct.id")
     post_text: str
     is_selected: bool = False
+    scheduled_for: Optional[datetime] = None  
     posted_at: Optional[datetime] = None
     threads_post_id: Optional[str] = None

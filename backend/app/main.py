@@ -1,8 +1,11 @@
+import asyncio
+
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
 from app.routers import cards, dashboard, earnings, products, research, scraper, scripts, shopee, threads
+from app.services.scheduler import run_scheduler_loop
 
 
 app = FastAPI(title="TikTok Shop Affiliate AI Engine")
@@ -26,8 +29,9 @@ app.include_router(api_router)
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     init_db()
+    asyncio.create_task(run_scheduler_loop())  # Post Queue background poller
 
 
 @app.get("/health")

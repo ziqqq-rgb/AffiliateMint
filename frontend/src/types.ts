@@ -4,6 +4,7 @@ export type CardStatus =
   | "research_approved"
   | "scripted_pending"
   | "script_approved"
+  | "queued"
   | "filming"
   | "ready_to_post"
   | "posted"
@@ -108,8 +109,20 @@ export interface ThreadsPost {
   product_id: number;
   post_text: string;
   is_selected: boolean;
+  scheduled_for: string | null;
   posted_at: string | null;
   threads_post_id: string | null;
+}
+
+export interface QueuedPost {
+  post_id: number;
+  card_id: number;
+  product_id: number;
+  product_title: string;
+  product_image_url: string;
+  platform: Platform;
+  post_text: string;
+  scheduled_for: string;
 }
 
 export interface ShopeeScrapeFilters {

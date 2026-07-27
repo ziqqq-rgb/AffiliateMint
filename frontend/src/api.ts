@@ -8,6 +8,7 @@ import {
   ThreadsPost,
   ShopeeScrapeFilters,
   EMPTY_SHOPEE_FILTERS,
+  QueuedPost,
 } from "./types";
 
 const BASE = "/api";
@@ -67,4 +68,15 @@ export const api = {
 
   // History tab - was missing, which broke the History page too
   listEarningsForCard: (cardId: number) => request<EarningsEntry[]>(`/earnings/card/${cardId}`),
+
+  scheduleThreadsPost: (postId: number, scheduledFor: string) =>
+  request<ContentCard>(`/threads/posts/${postId}/schedule`, {
+    method: "POST",
+    body: JSON.stringify({ scheduled_for: scheduledFor }),
+  }),
+
+  unscheduleThreadsPost: (postId: number) =>
+    request<ContentCard>(`/threads/posts/${postId}/unschedule`, { method: "POST" }),
+
+  listQueue: () => request<QueuedPost[]>("/threads/queue"),
 };

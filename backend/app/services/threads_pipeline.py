@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from agents.threads_agent import generate_threads_posts
 from app.db import engine
 from app.models import CardStatus, ContentCard, ResearchDossier, ScrapedProduct, ThreadsPost
+from app.schemas import QueuedPostOut
 from app.services.pipeline import _card_for_product
 from app.services.threads_client import publish_text_post
 from app.services.affiliate_link import append_buy_link
@@ -66,14 +67,17 @@ def select_threads_post(session: Session, post_id: int) -> ContentCard:
     if post is None:
         raise ValueError(f"No ThreadsPost with id {post_id}")
 
-    # Only one post can be selected per product at a time - unselect any
-    # previous pick so publish_threads_post's is_selected lookup is unambiguous.
+    # Only one post can be "active" (selected or scheduled) per product at
+    # a time - clear both flags on any sibling so publish_threads_post's
+    # is_selected lookup and the scheduler's due-post query never
+    # disagree about which post is "the" queued one for this product.
     siblings = session.exec(
         select(ThreadsPost).where(ThreadsPost.product_id == post.product_id, ThreadsPost.id != post.id)
     ).all()
     for sibling in siblings:
-        if sibling.is_selected:
+        if sibling.is_selected or sibling.scheduled_for is not None:
             sibling.is_selected = False
+            sibling.scheduled_for = None
             session.add(sibling)
 
     post.is_selected = True
@@ -128,6 +132,7 @@ def publish_threads_post(session: Session, card_id: int) -> ContentCard:
     # post_text already has the buy link - no more double-appending here
     post.threads_post_id = publish_text_post(post.post_text)
     post.posted_at = datetime.utcnow()
+    post.scheduled_for = None  # no longer "queued" once actually published
     session.add(post)
 
     card.status = CardStatus.POSTED
@@ -148,3 +153,76 @@ def auto_select_and_publish(session: Session, posts: list[ThreadsPost]) -> Conte
     publishes it immediately. Used by the one-click pipeline when
     auto-publish is enabled."""
     return post_threads_post_now(session, posts[0].id)
+
+
+# --- Post Queue (schedule -> auto-publish) -------------------------------
+
+def schedule_threads_post(session: Session, post_id: int, scheduled_for: datetime) -> ContentCard:
+    """Queues a post to auto-publish at scheduled_for (app/services/
+    scheduler.py polls for due posts and calls publish_threads_post).
+    Reuses select_threads_post so the "one active post per product"
+    rule and its sibling-clearing stay in one place."""
+    if scheduled_for <= datetime.utcnow():
+        raise ValueError("scheduled_for must be in the future")
+
+    card = select_threads_post(session, post_id)
+
+    post = session.get(ThreadsPost, post_id)
+    post.scheduled_for = scheduled_for
+    session.add(post)
+
+    card.status = CardStatus.QUEUED
+    session.add(card)
+
+    session.commit()
+    session.refresh(card)
+    return card
+
+
+def unschedule_threads_post(session: Session, post_id: int) -> ContentCard:
+    """Removes a post from the queue. The post stays selected - only its
+    scheduled_for clears - since "unschedule" means "go back to manual
+    posting", not "un-pick this script"."""
+    post = session.get(ThreadsPost, post_id)
+    if post is None:
+        raise ValueError(f"No ThreadsPost with id {post_id}")
+
+    post.scheduled_for = None
+    session.add(post)
+
+    card = _card_for_product(session, post.product_id)
+    if card is not None and card.status == CardStatus.QUEUED:
+        card.status = CardStatus.SCRIPT_APPROVED
+        session.add(card)
+
+    session.commit()
+    if card is not None:
+        session.refresh(card)
+    return card
+
+
+def list_queued_posts(session: Session) -> list[QueuedPostOut]:
+    """Feeds the Post Queue sidebar - every scheduled-but-not-yet-posted
+    post, soonest first, joined with its product/card so the sidebar
+    renders a full preview without extra round-trips."""
+    statement = (
+        select(ThreadsPost, ScrapedProduct, ContentCard)
+        .join(ScrapedProduct, ScrapedProduct.id == ThreadsPost.product_id)
+        .join(ContentCard, ContentCard.product_id == ThreadsPost.product_id)
+        .where(ThreadsPost.scheduled_for.is_not(None), ThreadsPost.posted_at.is_(None))
+        .order_by(ThreadsPost.scheduled_for.asc())
+    )
+    rows = session.exec(statement).all()
+    return [
+        QueuedPostOut(
+            post_id=post.id,
+            card_id=card.id,
+            product_id=product.id,
+            product_title=product.title,
+            product_image_url=product.image_url,
+            platform=product.platform.value,
+            post_text=post.post_text,
+            scheduled_for=post.scheduled_for,
+        )
+        for post, product, card in rows
+    ]
