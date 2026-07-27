@@ -79,4 +79,6 @@ export const api = {
     request<ContentCard>(`/threads/posts/${postId}/unschedule`, { method: "POST" }),
 
   listQueue: () => request<QueuedPost[]>("/threads/queue"),
+
+  listQueueSlots: () => request<string[]>("/threads/queue/slots"),
 };

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { api } from "../api";
 import { buildHourlySlotsUntilMidnight } from "../lib/timeSlots";
 
 interface Props {
@@ -6,10 +7,15 @@ interface Props {
   busy: boolean;
   scheduledFor: string | null;
   onPostNow: () => void;
-  onSchedule: (isoTime: string) => void;
+  onSchedule: (isoTime: string) => Promise<void>;
   onUnschedule: () => void;
 }
 
+/**
+ * Split button: click/tap posts immediately, hover reveals "Post later"
+ * with hourly slots until midnight. Once a post has scheduled_for set,
+ * this collapses into a "Queued for ..." pill with a cancel action.
+ */
 export function PostActionButton({
   isReposting,
   busy,
@@ -19,15 +25,28 @@ export function PostActionButton({
   onUnschedule,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [takenSlots, setTakenSlots] = useState<string[]>([]);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function openMenu() {
+  async function openMenu() {
     if (closeTimer.current) clearTimeout(closeTimer.current);
     setOpen(true);
+    setTakenSlots(await api.listQueueSlots());
   }
 
   function scheduleClose() {
     closeTimer.current = setTimeout(() => setOpen(false), 150);
+  }
+
+  async function handlePickSlot(isoTime: string) {
+    try {
+      await onSchedule(isoTime);
+    } catch (err) {
+      // Most likely someone else grabbed this exact slot between our
+      // last fetch and this click - refresh so the picker reflects reality.
+      window.alert(err instanceof Error ? err.message : "That time slot is no longer available");
+      setTakenSlots(await api.listQueueSlots());
+    }
   }
 
   if (scheduledFor) {
@@ -46,7 +65,7 @@ export function PostActionButton({
     );
   }
 
-  const slots = buildHourlySlotsUntilMidnight();
+  const slots = buildHourlySlotsUntilMidnight(takenSlots);
   const label = isReposting ? "Repost" : "Post this";
 
   return (
@@ -79,10 +98,16 @@ export function PostActionButton({
               slots.map((slot) => (
                 <button
                   key={slot.value}
-                  onClick={() => onSchedule(slot.value)}
-                  className="block w-full rounded-lg px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  onClick={() => handlePickSlot(slot.value)}
+                  disabled={slot.disabled}
+                  className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                    slot.disabled
+                      ? "cursor-not-allowed text-gray-300"
+                      : "text-gray-700 hover:bg-gray-50"
+                  }`}
                 >
                   {slot.label}
+                  {slot.disabled && <span className="ml-1.5 text-[10px] text-gray-300">taken</span>}
                 </button>
               ))
             )}

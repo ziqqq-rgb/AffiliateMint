@@ -50,14 +50,14 @@ export function ThreadsPanel({ posts, onChange }: Props) {
   }
 
   async function handleSchedule(post: ThreadsPost, isoTime: string) {
-    setBusyId(post.id);
-    try {
-      await api.scheduleThreadsPost(post.id, isoTime);
-      onChange();
-    } finally {
-      setBusyId(null);
-    }
+  setBusyId(post.id);
+  try {
+    await api.scheduleThreadsPost(post.id, isoTime);
+    onChange();
+  } finally {
+    setBusyId(null);
   }
+}
 
   async function handleUnschedule(post: ThreadsPost) {
     setBusyId(post.id);

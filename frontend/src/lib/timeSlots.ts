@@ -1,16 +1,30 @@
 export interface TimeSlot {
   label: string;
-  value: string; // ISO datetime string
+  value: string; 
+  disabled: boolean; 
 }
 
 const END_OF_DAY_HOUR = 23;
 const END_OF_DAY_MINUTE = 59;
 
-export function buildHourlySlotsUntilMidnight(from: Date = new Date()): TimeSlot[] {
+/**
+ * Hourly slots from the next full hour after `from` until 11:59 PM the
+ * same day. Always appends an explicit "end of day" slot so the last
+ * partial hour of the day is reachable even when it isn't a round hour
+ * away. Returns [] once it's already past 11:59 PM - callers never
+ * need to special-case "no slots left today".
+ *
+ * takenSlots are ISO strings (from GET /threads/queue/slots) - compared
+ * by timestamp, not string equality, since backend/frontend ISO
+ * formatting can differ in precision.
+ */
+export function buildHourlySlotsUntilMidnight(takenSlots: string[] = [], from: Date = new Date()): TimeSlot[] {
   const endOfDay = new Date(from);
   endOfDay.setHours(END_OF_DAY_HOUR, END_OF_DAY_MINUTE, 0, 0);
 
   if (from >= endOfDay) return [];
+
+  const takenTimestamps = new Set(takenSlots.map((iso) => new Date(iso).getTime()));
 
   const slots: TimeSlot[] = [];
   const cursor = new Date(from);
@@ -18,11 +32,20 @@ export function buildHourlySlotsUntilMidnight(from: Date = new Date()): TimeSlot
   cursor.setHours(cursor.getHours() + 1);
 
   while (cursor < endOfDay) {
-    slots.push({ label: formatClock(cursor), value: cursor.toISOString() });
+    slots.push({
+      label: formatClock(cursor),
+      value: cursor.toISOString(),
+      disabled: takenTimestamps.has(cursor.getTime()),
+    });
     cursor.setHours(cursor.getHours() + 1);
   }
 
-  slots.push({ label: `${formatClock(endOfDay)} (end of day)`, value: endOfDay.toISOString() });
+  slots.push({
+    label: `${formatClock(endOfDay)} (end of day)`,
+    value: endOfDay.toISOString(),
+    disabled: takenTimestamps.has(endOfDay.getTime()),
+  });
+
   return slots;
 }
 

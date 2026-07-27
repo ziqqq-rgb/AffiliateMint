@@ -1,6 +1,6 @@
 """State machine for Shopee -> Threads (generate -> select -> publish),
 same shape as app/services/pipeline.py but for text posts."""
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
@@ -13,6 +13,17 @@ from app.services.threads_client import publish_text_post
 from app.services.affiliate_link import append_buy_link
 from agents.memory import remember_threads_edit 
 
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    """The frontend sends timezone-aware ISO strings (JS's
+    Date.toISOString() always has a 'Z' suffix), but every datetime
+    elsewhere in this app - storage, datetime.utcnow(), the scheduler's
+    poll comparison - is naive UTC. Normalize once, here, so no other
+    file in the pipeline has to reason about tzinfo at all."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def start_threads_generation(session: Session, dossier_id: int) -> ContentCard:
@@ -160,10 +171,26 @@ def auto_select_and_publish(session: Session, posts: list[ThreadsPost]) -> Conte
 def schedule_threads_post(session: Session, post_id: int, scheduled_for: datetime) -> ContentCard:
     """Queues a post to auto-publish at scheduled_for (app/services/
     scheduler.py polls for due posts and calls publish_threads_post).
-    Reuses select_threads_post so the "one active post per product"
-    rule and its sibling-clearing stay in one place."""
+
+    Enforces one post per time slot GLOBALLY (not per product) - Threads
+    only has one account posting, so two products auto-firing at the
+    exact same minute isn't something the queue should allow. Reuses
+    select_threads_post so the "one active post per product" rule and
+    its sibling-clearing stay in one place.
+    """
+    scheduled_for = _to_naive_utc(scheduled_for)
     if scheduled_for <= datetime.utcnow():
         raise ValueError("scheduled_for must be in the future")
+
+    clash = session.exec(
+        select(ThreadsPost).where(
+            ThreadsPost.scheduled_for == scheduled_for,
+            ThreadsPost.posted_at.is_(None),
+            ThreadsPost.id != post_id,
+        )
+    ).first()
+    if clash is not None:
+        raise ValueError("That time slot is already taken by another queued post")
 
     card = select_threads_post(session, post_id)
 
@@ -182,7 +209,9 @@ def schedule_threads_post(session: Session, post_id: int, scheduled_for: datetim
 def unschedule_threads_post(session: Session, post_id: int) -> ContentCard:
     """Removes a post from the queue. The post stays selected - only its
     scheduled_for clears - since "unschedule" means "go back to manual
-    posting", not "un-pick this script"."""
+    posting", not "un-pick this script". Clearing scheduled_for is also
+    what makes the slot reappear as choosable in list_taken_slots -
+    nothing else needs to happen for the slot to "free up"."""
     post = session.get(ThreadsPost, post_id)
     if post is None:
         raise ValueError(f"No ThreadsPost with id {post_id}")
@@ -222,7 +251,18 @@ def list_queued_posts(session: Session) -> list[QueuedPostOut]:
             product_image_url=product.image_url,
             platform=product.platform.value,
             post_text=post.post_text,
-            scheduled_for=post.scheduled_for,
+            scheduled_for=post.scheduled_for.isoformat() + "Z",
         )
         for post, product, card in rows
     ]
+
+
+def list_taken_slots(session: Session) -> list[str]:
+    """Every scheduled_for currently held by a queued (not yet posted)
+    post, across all products - feeds the frontend's time-slot picker
+    so it can grey out hours already claimed by another post."""
+    statement = select(ThreadsPost.scheduled_for).where(
+        ThreadsPost.scheduled_for.is_not(None),
+        ThreadsPost.posted_at.is_(None),
+    )
+    return [dt.isoformat() + "Z" for dt in session.exec(statement).all()]

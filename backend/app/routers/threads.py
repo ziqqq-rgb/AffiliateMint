@@ -11,6 +11,7 @@ from app.services.threads_pipeline import (
     edit_threads_post,
     get_threads_posts_for_product,
     list_queued_posts,
+    list_taken_slots,
     post_threads_post_now,
     publish_threads_post,
     run_threads_generation_task,
@@ -102,3 +103,9 @@ def unschedule(post_id: int, session: Session = Depends(get_session)):
 def queue(session: Session = Depends(get_session)):
     """Feeds the Post Queue sidebar."""
     return list_queued_posts(session)
+
+@router.get("/queue/slots", response_model=list[str])
+def taken_slots(session: Session = Depends(get_session)):
+    """Feeds the schedule picker - which hourly slots are already
+    claimed by another queued post, so it can grey them out."""
+    return list_taken_slots(session)

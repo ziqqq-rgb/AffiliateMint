@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
+from pydantic import field_serializer
 
 class Platform(str, Enum):
     TIKTOK = "tiktok"
@@ -130,6 +131,15 @@ class ThreadsPost(SQLModel, table=True):
     product_id: int = Field(foreign_key="scrapedproduct.id")
     post_text: str
     is_selected: bool = False
-    scheduled_for: Optional[datetime] = None  
+    scheduled_for: Optional[datetime] = None
     posted_at: Optional[datetime] = None
     threads_post_id: Optional[str] = None
+
+    @field_serializer("scheduled_for", "posted_at")
+    def _serialize_utc(self, value: Optional[datetime]) -> Optional[str]:
+        """Every datetime in this app is stored as naive UTC
+        (datetime.utcnow()) - append 'Z' explicitly on the way out so
+        the frontend's `new Date(...)` parses it as UTC instead of
+        silently treating it as local time (that mismatch was making
+        queued times display wrong for anyone outside UTC+0)."""
+        return value.isoformat() + "Z" if value else None
