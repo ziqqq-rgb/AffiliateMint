@@ -112,6 +112,7 @@ export interface ThreadsPost {
   scheduled_for: string | null;
   posted_at: string | null;
   threads_post_id: string | null;
+  last_publish_error: string | null;
 }
 
 export interface QueuedPost {
@@ -123,6 +124,7 @@ export interface QueuedPost {
   platform: Platform;
   post_text: string;
   scheduled_for: string;
+  last_publish_error: string | null;
 }
 
 export interface ShopeeScrapeFilters {

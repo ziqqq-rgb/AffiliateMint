@@ -134,12 +134,12 @@ class ThreadsPost(SQLModel, table=True):
     scheduled_for: Optional[datetime] = None
     posted_at: Optional[datetime] = None
     threads_post_id: Optional[str] = None
+    last_publish_error: Optional[str] = None  
 
     @field_serializer("scheduled_for", "posted_at")
     def _serialize_utc(self, value: Optional[datetime]) -> Optional[str]:
         """Every datetime in this app is stored as naive UTC
         (datetime.utcnow()) - append 'Z' explicitly on the way out so
         the frontend's `new Date(...)` parses it as UTC instead of
-        silently treating it as local time (that mismatch was making
-        queued times display wrong for anyone outside UTC+0)."""
+        silently treating it as local time."""
         return value.isoformat() + "Z" if value else None

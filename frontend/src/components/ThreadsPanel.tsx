@@ -50,14 +50,16 @@ export function ThreadsPanel({ posts, onChange }: Props) {
   }
 
   async function handleSchedule(post: ThreadsPost, isoTime: string) {
-  setBusyId(post.id);
-  try {
-    await api.scheduleThreadsPost(post.id, isoTime);
-    onChange();
-  } finally {
-    setBusyId(null);
+    setBusyId(post.id);
+    try {
+      await api.scheduleThreadsPost(post.id, isoTime);
+      onChange();
+    } finally {
+      setBusyId(null);
+    }
+    // Errors intentionally propagate up - PostActionButton's
+    // handlePickSlot catches them and shows the "slot taken" message.
   }
-}
 
   async function handleUnschedule(post: ThreadsPost) {
     setBusyId(post.id);
@@ -113,6 +115,9 @@ export function ThreadsPanel({ posts, onChange }: Props) {
 
                   {post.posted_at && (
                     <p className="mt-3 text-xs font-medium text-emerald-700">Posted to Threads.</p>
+                  )}
+                  {post.last_publish_error && !post.posted_at && (
+                    <p className="mt-3 text-xs text-red-500">Last attempt failed: {post.last_publish_error}</p>
                   )}
 
                   <div className="mt-3 flex flex-wrap items-center gap-2">

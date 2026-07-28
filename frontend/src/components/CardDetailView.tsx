@@ -11,9 +11,11 @@ import { TeleprompterView } from "./TeleprompterView";
 interface Props {
   cardId: number;
   onBack: () => void;
+
+  refreshSignal?: number;
 }
 
-export function CardDetailView({ cardId, onBack }: Props) {
+export function CardDetailView({ cardId, onBack, refreshSignal }: Props) {
   const [card, setCard] = useState<ContentCard | null>(null);
   const [product, setProduct] = useState<ScrapedProduct | null>(null);
   const [dossiers, setDossiers] = useState<ResearchDossier[]>([]);
@@ -39,10 +41,20 @@ export function CardDetailView({ cardId, onBack }: Props) {
     setLoading(false);
   }, [cardId]);
 
+  // Full load (with spinner) whenever we're pointed at a different card.
   useEffect(() => {
     setLoading(true);
     load();
   }, [load]);
+
+  // Silent background refresh triggered from outside this view (e.g.
+  // cancelling a queued post from the Queue sidebar) - no spinner, so
+  // the panel doesn't flicker while it's already on screen.
+  useEffect(() => {
+    if (refreshSignal === undefined) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   if (loading || !card || !product) {
     return (

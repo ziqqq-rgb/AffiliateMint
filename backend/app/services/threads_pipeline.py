@@ -123,9 +123,29 @@ def edit_threads_post(session: Session, post_id: int, post_text: str) -> Threads
 
 
 def post_threads_post_now(session: Session, post_id: int) -> ContentCard:
-    """'Post this' button: selects and publishes one post in a single
-    action. Also used by auto_select_and_publish below."""
-    card = select_threads_post(session, post_id)
+    """'Post this' button: publishes one post immediately - used both by
+    the script card's button (post not yet selected) and the Queue
+    sidebar's "Post now" (posting early, ahead of its scheduled time -
+    post already selected and scheduled).
+
+    Skips re-selecting an already-selected post: calling
+    select_threads_post here unconditionally used to reset
+    card.status to SCRIPT_APPROVED even when the post was still
+    scheduled, so a failed publish attempt left the card showing
+    "Ready to film" instead of "Queued" - misleading, since the post
+    hadn't actually left the queue and the scheduler would still retry it.
+    """
+    post = session.get(ThreadsPost, post_id)
+    if post is None:
+        raise ValueError(f"No ThreadsPost with id {post_id}")
+
+    if post.is_selected:
+        card = _card_for_product(session, post.product_id)
+        if card is None:
+            raise ValueError(f"No ContentCard for product {post.product_id}")
+    else:
+        card = select_threads_post(session, post_id)
+
     return publish_threads_post(session, card.id)
 
 
@@ -140,10 +160,21 @@ def publish_threads_post(session: Session, card_id: int) -> ContentCard:
     if post is None:
         raise ValueError("No selected Threads post for this card")
 
-    # post_text already has the buy link - no more double-appending here
-    post.threads_post_id = publish_text_post(post.post_text)
+    try:
+        threads_post_id = publish_text_post(post.post_text)
+    except Exception as e:
+        # Record WHY it failed so the Queue sidebar / script card can
+        # show it, instead of the post silently retrying every
+        # scheduler tick with no visible explanation.
+        post.last_publish_error = str(e)
+        session.add(post)
+        session.commit()
+        raise
+
+    post.threads_post_id = threads_post_id
     post.posted_at = datetime.utcnow()
     post.scheduled_for = None  # no longer "queued" once actually published
+    post.last_publish_error = None
     session.add(post)
 
     card.status = CardStatus.POSTED
@@ -252,6 +283,7 @@ def list_queued_posts(session: Session) -> list[QueuedPostOut]:
             platform=product.platform.value,
             post_text=post.post_text,
             scheduled_for=post.scheduled_for.isoformat() + "Z",
+            last_publish_error=post.last_publish_error,
         )
         for post, product, card in rows
     ]

@@ -8,6 +8,8 @@ import { Spinner } from "./Spinner";
 interface Props {
   open: boolean;
   onClose: () => void;
+
+  onChanged: () => void;
 }
 
 const PLATFORM_BADGE: Record<string, string> = {
@@ -15,10 +17,11 @@ const PLATFORM_BADGE: Record<string, string> = {
   tiktok: "bg-rose-100 text-rose-700",
 };
 
-export function QueueSidebar({ open, onClose }: Props) {
+export function QueueSidebar({ open, onClose, onChanged }: Props) {
   const [posts, setPosts] = useState<QueuedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -32,9 +35,13 @@ export function QueueSidebar({ open, onClose }: Props) {
 
   async function handleCancel(postId: number) {
     setBusyId(postId);
+    setActionError(null);
     try {
       await api.unscheduleThreadsPost(postId);
       await load();
+      onChanged();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to cancel this post");
     } finally {
       setBusyId(null);
     }
@@ -42,8 +49,18 @@ export function QueueSidebar({ open, onClose }: Props) {
 
   async function handlePostNow(postId: number) {
     setBusyId(postId);
+    setActionError(null);
     try {
       await api.postThreadsPostNow(postId);
+      await load();
+      onChanged();
+    } catch (err) {
+      // Surface the real failure (e.g. Threads API rejecting the
+      // request) instead of failing silently - the post stays queued
+      // and the scheduler will keep retrying it automatically.
+      setActionError(
+        err instanceof Error ? err.message : "Failed to post now - it will stay queued and retry automatically",
+      );
       await load();
     } finally {
       setBusyId(null);
@@ -75,6 +92,12 @@ export function QueueSidebar({ open, onClose }: Props) {
             <CloseIcon />
           </button>
         </header>
+
+        {actionError && (
+          <div className="mx-5 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {actionError}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
@@ -139,6 +162,11 @@ function QueueItem({
             <p className="truncate text-xs font-medium text-gray-500">{post.product_title}</p>
           </div>
           <p className="mt-1 line-clamp-2 text-sm text-gray-800">{post.post_text}</p>
+          {post.last_publish_error && (
+            <p className="mt-1 line-clamp-1 text-[11px] text-red-500">
+              Last attempt failed: {post.last_publish_error}
+            </p>
+          )}
         </div>
       </div>
 
@@ -155,7 +183,7 @@ function QueueItem({
             disabled={busy}
             className="rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
           >
-            Post now
+            {busy ? "..." : "Post now"}
           </button>
           <button
             onClick={onCancel}

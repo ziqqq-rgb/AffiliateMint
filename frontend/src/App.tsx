@@ -17,14 +17,18 @@ export default function App() {
   const [openCardId, setOpenCardId] = useState<number | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
+  // Bumped whenever the Queue sidebar changes a post's scheduled/posted
+  // state, so the currently-open script card (a separate component with
+  // its own fetched data) knows to refetch instead of showing stale
+  // "Queued for..." state after a cancel done from the sidebar.
+  const [dataVersion, setDataVersion] = useState(0);
 
   useEffect(() => {
     api.listQueue().then((posts) => setQueueCount(posts.length));
-  }, []);
+  }, [dataVersion]);
 
-  async function handleCloseQueue() {
-    setQueueOpen(false);
-    setQueueCount((await api.listQueue()).length);
+  function handleQueueChanged() {
+    setDataVersion((v) => v + 1);
   }
 
   return (
@@ -73,14 +77,14 @@ export default function App() {
       </header>
 
       {openCardId !== null ? (
-        <CardDetailView cardId={openCardId} onBack={() => setOpenCardId(null)} />
+        <CardDetailView cardId={openCardId} onBack={() => setOpenCardId(null)} refreshSignal={dataVersion} />
       ) : tab === "board" ? (
         <KanbanBoard />
       ) : (
         <ProgressView onOpenCard={setOpenCardId} />
       )}
 
-      <QueueSidebar open={queueOpen} onClose={handleCloseQueue} />
+      <QueueSidebar open={queueOpen} onClose={() => setQueueOpen(false)} onChanged={handleQueueChanged} />
     </div>
   );
 }
