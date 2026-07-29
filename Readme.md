@@ -1,164 +1,240 @@
 # AffiliateMint
 
-Affiliate marketing automation for TikTok Shop and Shopee, built for the Malaysian market.
+**An end-to-end affiliate marketing automation platform for the Malaysian TikTok Shop and Shopee affiliate markets.**
 
-AffiliateMint scrapes trending products, researches them with AI, writes scripts and posts, and publishes them — while a human stays in control of what actually goes out. It's a solo project built to handle the repetitive parts of affiliate content creation: finding products, writing about them, and posting on a schedule.
+AffiliateMint scrapes trending products, researches them with AI, writes platform-native content, and publishes it — with a feedback loop that helps future content lean on what has actually worked before.
 
-## The problem
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-FTS5-003B57?logo=sqlite&logoColor=white)
 
-Running affiliate content by hand means the same loop every day: browse TikTok Shop or Shopee for products worth promoting, look up what makes them worth buying, write a hook and caption, and post at the right time. None of that is hard on its own, but doing it for dozens of products a week adds up fast.
+## Contents
 
-AffiliateMint automates that loop end to end, while keeping every generated script and post editable before anything goes live.
+- [Overview](#overview)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Project structure](#project-structure)
+- [Getting started](#getting-started)
+- [Environment variables](#environment-variables)
+- [Running the app](#running-the-app)
+- [Testing](#testing)
+- [API overview](#api-overview)
+- [Design notes](#design-notes)
 
-## How it works
+## Overview
+
+AffiliateMint automates the affiliate content pipeline for two Malaysian shopping platforms:
 
 ```
-Scrape products (TikTok Shop / Shopee)
-        │
-        ▼
-AI research dossier (USPs, benefits, review summary)
-        │
-        ▼
-Script generation (TikTok) / Post generation (Shopee → Threads)
-        │
-        ▼
-Review & edit (optional)
-        │
-        ▼
-Publish now, or schedule for later
-        │
-        ▼
-Feedback loop: edits and earnings shape future generations
+Scrape product → AI research dossier → Script / post generation → Publish → Log earnings → Memory feedback loop
 ```
 
-1. **Scrape** — a hybrid SeleniumBase + Playwright scraper pulls product data (price, rating, units sold, commission) straight from the storefront's own network traffic, not the rendered page.
-2. **Research** — an AI agent builds a short dossier per product: what it does, three distinct selling points, and a review summary, grounded in the scraped data plus live web search for market context.
-3. **Deep research** — for products with something worth digging into (an ingredient, a fabric, a certification, a design's heritage), a second pass researches that specific angle and adds sourced detail.
-4. **Generate** — TikTok products get three script angles (problem hook, tech spec, lifestyle). Shopee products get three short Threads post variations in Bahasa Malaysia.
-5. **Review** — every script and post can be hand-edited before it goes out. Edits get logged and used to steer future generations toward what's actually being kept.
-6. **Publish** — post immediately, or drop it into a queue with a specific time slot. A background scheduler checks every minute for anything due.
-7. **Learn** — logged earnings and manual edits are stored in a local memory ledger, and future scripts/posts search that history for what's worked before.
+- **TikTok Shop** products get a scraped listing, an AI research dossier, and 3 video script angles the operator reviews before filming.
+- **Shopee** products get a scraped affiliate offer, an AI research dossier, and 3 Threads post variations that can be published immediately or scheduled.
+
+Every stage is visible and editable on a Kanban-style board — nothing publishes without the operator's say, except Shopee's optional auto-publish mode.
 
 ## Features
 
-- Kanban board to review scraped products before committing time to them
-- One-click pipeline: research and script/post generation in a single background job
-- Deep research section for ingredient, material, or heritage-level detail
-- Inline editing for scripts and posts, with edits feeding back into the learning loop
-- Post queue with a time-slot picker and a self-healing scheduler (survives restarts)
-- Manual earnings logging, with reminders for posted content that hasn't been checked yet
-- Simple analytics: posts per day, 7-day trend, split by platform
+- **Dual-platform scraping** — a SeleniumBase (UC mode) + Playwright-over-CDP hybrid scraper for TikTok Shop's storefront, and a paginated scraper for the Shopee affiliate dashboard, both using persisted browser sessions to survive anti-bot defenses.
+- **AI research dossiers** — grounded strictly in scraped data plus optional web context from a self-hosted Firecrawl instance. An additive "deep research" pass adds category-specific credibility details (ingredients, fabric/material tech, brand heritage, certifications) without ever overwriting scraped facts.
+- **Content generation** — 3 TikTok video script angles (Problem Hook, Tech Spec, Aesthetic/Lifestyle) or 3 Shopee Threads post variations, written in Bahasa Malaysia.
+- **One-click pipeline** — scrape → research → scripts/posts runs as a single background job; the board polls `is_generating` and updates itself.
+- **Editable outputs with memory** — every hand-edit and every logged earnings result is written into a local full-text search ledger (Hermes/FTS5) that future prompts query for "what worked before."
+- **Threads publishing** — posts directly to Meta's Threads API, with automatic retries on transient failures and the exact API error surfaced back to the operator.
+- **Post Queue** — schedule a Threads post to a specific hourly slot; a self-healing background poller publishes it when due, even after a server restart.
+- **Dashboards** — a review board for new scrapes, a progress view grouped by date, and per-platform analytics (posts today, 7-day trend).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Scraping
+        TT[TikTok Shop scraper] --> DB[(SQLite)]
+        SH[Shopee scraper] --> DB
+    end
+
+    DB --> RA[Research agent<br/>GLM-5.2 via NVIDIA NIM]
+    FC[Self-hosted Firecrawl<br/>web search] --> RA
+    RA --> DOS[(Research Dossier)]
+
+    DOS --> SA[Script agent<br/>Gemini 2.5 Flash]
+    DOS --> THA[Threads agent<br/>Gemini 2.5 Flash]
+
+    SA --> SCR[(Script Variations)]
+    THA --> POST[(Threads Posts)]
+
+    POST --> SCHED[asyncio scheduler]
+    SCHED --> THAPI[Meta Threads API]
+
+    SCR -.filmed & posted manually.-> EARN[(Earnings Entry)]
+    THAPI --> EARN
+
+    EARN --> MEM[(Hermes memory<br/>SQLite FTS5)]
+    MEM -.search past performance.-> SA
+    MEM -.search past performance.-> THA
+```
+
+The two platforms diverge after the shared scrape → research stage: TikTok content stays manual (film → post → log earnings), while Shopee content is text-only and can publish straight from the app.
 
 ## Tech stack
 
-**Backend**
-- FastAPI + SQLModel on SQLite (with an FTS5 full-text index for the memory ledger)
-- Plain `asyncio` background tasks for the queue scheduler — no Celery, Redis, or cron
-
-**Scraping**
-- SeleniumBase (undetected Chrome mode) + Playwright connected over CDP
-- Cookie session persistence, so a run doesn't have to fight anti-bot checks from scratch every time
-
-**AI**
-- GLM-5.2 (via NVIDIA NIM) for research and deep research
-- Gemini 2.5 Flash (via Google AI Studio) for scripts and Threads posts
-- Hermes (Nous Research), running locally, for the memory and feedback loop
-- Self-hosted Firecrawl for web search grounding
-
-**Frontend**
-- React + TypeScript + Vite + Tailwind CSS
-
-**Publishing**
-- Meta Threads API, with automatic retry on transient failures
+| Layer | Technology |
+|---|---|
+| Backend API | FastAPI, SQLModel, SQLite (with an FTS5 memory ledger) |
+| Background jobs | Native `asyncio` tasks and polling — no Celery/Redis/APScheduler |
+| Scraping | SeleniumBase (UC mode) + Playwright over CDP |
+| Research LLM | GLM-5.2 via NVIDIA NIM |
+| Script/copy LLM | Gemini 2.5 Flash via Google AI Studio |
+| Web grounding | Self-hosted [Firecrawl](https://github.com/mendableai/firecrawl) |
+| Publishing | Meta Threads Graph API |
+| Frontend | React, TypeScript, Vite, Tailwind CSS, Recharts |
 
 ## Project structure
 
+The codebase is split by responsibility rather than by feature, so each layer can be reasoned about (and tested) on its own:
+
 ```
 backend/
-├── agents/                # AI agent logic: research, scripts, threads, memory
-│   └── providers/         # Thin HTTP clients per provider (NVIDIA, Gemini, Firecrawl, Hermes)
 ├── app/
-│   ├── routers/            # FastAPI route handlers — HTTP only, no business logic
-│   ├── services/            # Business logic and state machines (pipeline, scheduler, etc.)
-│   ├── mcp_tools/            # MCP tool exposure for the scraper
-│   ├── models.py              # Database tables
-│   ├── schemas.py              # API response shapes that aren't 1:1 with a table
-│   ├── config.py                # All environment variables, read in one place
-│   ├── db.py                     # Engine and session setup
-│   └── main.py                    # App entry point
+│   ├── main.py             # FastAPI app wiring, CORS, router registration
+│   ├── config.py            # Settings loaded from environment — the only file that reads os.environ
+│   ├── db.py                 # Engine/session setup only, no business logic
+│   ├── models.py             # SQLModel tables (persistence layer)
+│   ├── schemas.py            # Response shapes that don't map 1:1 to a table
+│   ├── routers/               # Thin HTTP layer — request/response only, no logic
+│   ├── services/               # Business logic and state machines
+│   └── mcp_tools/               # MCP tool wrappers for external agent access
+├── agents/
+│   ├── providers/                # One HTTP client per LLM provider (NVIDIA, Gemini, Firecrawl)
+│   ├── research_agent.py          # Research dossier prompt + call
+│   ├── deep_research_agent.py     # Optional "credibility section" pass
+│   ├── script_agent.py            # TikTok script generation
+│   ├── threads_agent.py           # Shopee Threads post generation
+│   └── memory.py                  # FTS5 feedback ledger
 ├── scraper/
-│   ├── shopee/                    # Shopee scraper (mirrors the TikTok scraper's shape)
-│   └── ...                         # TikTok Shop scraper: browser, navigation, parsing
-└── tests/
+│   ├── config.py, browser.py, navigation.py, session_store.py, run.py   # TikTok Shop
+│   └── shopee/                                                            # Shopee (mirrors the layout above)
+└── tests/                    # pytest — pure logic, no live browser/LLM calls
 
 frontend/
 └── src/
-    ├── components/            # UI components, one file per component
-    ├── lib/                    # Pure helper functions (formatting, date grouping, etc.)
-    ├── api.ts                   # Every backend call, in one place
-    └── types.ts                  # Shared TypeScript types
+    ├── api.ts                 # Typed fetch client — the only file that calls the backend
+    ├── types.ts                # Shared TypeScript types
+    ├── components/              # UI, one component per file
+    └── lib/                       # Pure helper functions (formatting, grouping, status maps)
 ```
+
+> [!NOTE]
+> `app/routers` never contains business logic — it validates the request and delegates to `app/services`. This keeps the HTTP layer swappable and the logic testable without spinning up FastAPI.
 
 ## Getting started
 
 ### Prerequisites
 
 - Python 3.11+
-- Node 18+
-- A running Hermes agent (local inference server) on port 9119
-- A Firecrawl instance (self-hosted or hosted)
-- API keys for NVIDIA NIM and Google AI Studio
-- A Meta Threads API access token (only needed if you're publishing Shopee posts to Threads)
+- Node.js 18+
+- Google Chrome (required by SeleniumBase's UC mode)
+- An LLM endpoint compatible with the OpenAI chat-completions schema for Hermes' memory calls (defaults to `http://localhost:8080`)
+- API keys for NVIDIA NIM (research) and Google AI Studio (scripts/posts)
+- A self-hosted or hosted [Firecrawl](https://github.com/mendableai/firecrawl) instance for web-grounded research (defaults to `http://localhost:3002`)
+- Meta Threads API credentials, only needed for publishing (`threads_user_id`, `threads_access_token`)
 
-### Backend
+### Installation
 
 ```bash
+git clone <repository-url>
+cd affiliatemint
+
+# Backend
 cd backend
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env    # fill in your API keys and endpoints
-uvicorn app.main:app --reload
+playwright install chromium
+
+# Frontend
+cd ../frontend
+npm install
 ```
 
-### Frontend
+### Capture scraper sessions
+
+Both scrapers rely on a saved, logged-in browser session rather than a fresh incognito profile per run — this is what lets them survive TikTok's/Shopee's bot defenses. Run these once (and again whenever a session expires):
 
 ```bash
-cd frontend
-npm install
+# from backend/
+python3 -m scraper.manual_capture_session          # TikTok Shop
+python3 -m scraper.shopee.manual_capture_session    # Shopee affiliate dashboard
+```
+
+Each opens a visible browser window and gives you ~45 seconds to browse/log in before saving cookies to disk.
+
+## Environment variables
+
+Set these in `backend/.env` (all have safe local-dev defaults except the API keys):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./tiktok_engine.db` | Main application database |
+| `HERMES_API_URL` / `HERMES_API_KEY` | `http://localhost:8080` | Local memory-ledger LLM endpoint |
+| `NVIDIA_API_KEY` / `NVIDIA_MODEL` | — | Research agent (GLM-5.2 via NVIDIA NIM) |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | — | Script and Threads agents |
+| `FIRECRAWL_API_BASE` / `FIRECRAWL_API_KEY` | `https://api.firecrawl.dev/v1` | Web-search grounding; point at `http://localhost:3002/v1` for self-hosted, no key required |
+| `THREADS_USER_ID` / `THREADS_ACCESS_TOKEN` | — | Required only for publishing to Threads |
+| `AUTO_PUBLISH_SHOPEE_THREADS` | `false` | Skips manual review and publishes the first generated Threads post automatically |
+| `SCRAPER_HEADLESS` | `true` | Run scrapers without a visible browser window |
+
+> [!WARNING]
+> Enabling `AUTO_PUBLISH_SHOPEE_THREADS` publishes generated content to a live Threads account with no human review step — only turn this on once you trust the output quality.
+
+## Running the app
+
+```bash
+# Backend — from backend/
+uvicorn app.main:app --reload --port 8000
+
+# Frontend — from frontend/
 npm run dev
 ```
 
-### Environment variables
+The frontend expects the API at `/api` and is configured for `http://localhost:5173` in the backend's CORS settings. On first run, FastAPI's startup hook creates `tiktok_engine.db` and starts the Post Queue's background scheduler automatically.
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | SQLite connection string |
-| `HERMES_API_URL` | Local Hermes agent endpoint |
-| `NVIDIA_API_KEY`, `NVIDIA_API_BASE` | Research agent (GLM-5.2) |
-| `GEMINI_API_KEY`, `GEMINI_API_BASE` | Script and Threads agent |
-| `FIRECRAWL_API_BASE`, `FIRECRAWL_API_KEY` | Web search grounding |
-| `THREADS_USER_ID`, `THREADS_ACCESS_TOKEN` | Publishing to Threads |
-| `AUTO_PUBLISH_SHOPEE_THREADS` | Skip manual review and auto-publish Shopee posts |
+> [!TIP]
+> `create_all` never applies schema migrations. In development, delete `tiktok_engine.db` and restart whenever a model gains a new column; for anything longer-lived, apply the change with `ALTER TABLE` via the `sqlite3` CLI instead.
 
-### Tests
+## Testing
 
 ```bash
 cd backend
 python -m pytest
 ```
 
-## A few design decisions worth explaining
+Tests run against an in-memory SQLite database and monkeypatch every LLM/browser call, so no live credentials or network access are needed — they check pipeline state transitions and scraper response parsing, not AI output quality.
 
-- **No Celery or Redis.** The post queue is a single `asyncio` loop that polls for due posts once a minute. For a one-person, single-instance app, that's simpler to run and debug than adding a task broker, and it survives restarts fine since it checks by absolute due time instead of a fired timer.
-- **SQLite, not Postgres.** The app runs on one machine for one operator, so the extra setup isn't worth it yet. `db.py` stays deliberately thin so swapping in Postgres later won't touch anything else.
-- **Cookie sessions instead of fighting CAPTCHAs.** TikTok's anti-bot system blocks fresh browser sessions at the network level, even when a human solves the CAPTCHA. Saving and reusing a logged-in session's cookies turned out to be the reliable fix.
-- **Deep research is additive, never destructive.** Scraped price, rating, and sales data is never overwritten by AI-generated content — the two live in separate fields, so a bad research run can't corrupt real data.
+## API overview
 
-## Roadmap
+All routes are mounted under `/api`.
 
-- Allow editing scripts and posts after they've already been published
-- Keep tuning topic extraction for the deep research module, especially for fashion and cultural products
-- Clean up scraper parsing code that's currently duplicated across two files
+| Resource | Base path | Purpose |
+|---|---|---|
+| Products | `/products` | List scraped products, trigger the one-click pipeline |
+| Scraper | `/scraper` | Run the TikTok scraper, clear un-reviewed scrapes |
+| Shopee | `/shopee` | Run the Shopee affiliate scraper |
+| Research | `/research` | Generate/list research dossiers |
+| Scripts | `/scripts` | Generate, edit, and select TikTok script variations |
+| Cards | `/cards` | Kanban board state and status transitions |
+| Threads | `/threads` | Generate, edit, publish, and schedule Threads posts; Post Queue endpoints |
+| Earnings | `/earnings` | Log and review manual performance entries |
+| Dashboard | `/dashboard` | Aggregate summary stats |
 
-## License
+## Design notes
 
-MIT
+A few deliberate constraints worth knowing before extending this project:
+
+- **No task queue.** Background work (the pipeline, the Post Queue) runs on plain `asyncio` tasks polling the database by absolute due-time. This is simpler than Celery/Redis for a single-instance, solo-operated app, and it's self-healing — a missed tick from a restart just gets picked up on the next poll.
+- **Deep research is additive, never destructive.** `ingredients_research` is a separate field from the scraped price/rating/units-sold data; it is never allowed to overwrite what was actually scraped.
+- **Firecrawl is used for grounding, not scraping the target platforms.** Firecrawl blocks TikTok outright and returns a login wall for Shopee, so product data always comes from the dedicated browser scrapers — Firecrawl's `/search` only supplies general market context.
+- **Hermes' "memory" is a keyword index, not a trained model.** It's an FTS5 full-text search over past scripts/posts and their logged performance — an honest, inspectable feedback mechanism rather than fine-tuning.
