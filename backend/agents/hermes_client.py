@@ -1,27 +1,20 @@
-import json
-import re
-from typing import Any
-
+"""
+Hermes Agent client - local memory/learning model (agents/memory.py's
+FTS5 ledger sits alongside this). Same JSON-retry contract as the other
+providers (agents/providers/*_client.py), so it reuses their shared
+retry helper instead of re-implementing it.
+"""
 import httpx
 
+from agents.providers.common import run_with_json_retry
 from app.config import settings
-
-MAX_JSON_RETRIES = 2  
 
 
 def run_task(prompt: str, expects_json: bool = False):
-    for attempt in range(MAX_JSON_RETRIES + 1):
-        content = _call_hermes(prompt, expects_json)
-        if not expects_json:
-            return content
-
-        try:
-            return _parse_json_response(content)
-        except json.JSONDecodeError as e:
-            is_last_attempt = attempt == MAX_JSON_RETRIES
-            print(f"[WARN] Malformed JSON on attempt {attempt + 1}: {e}")
-            if is_last_attempt:
-                raise
+    """No transient-network retry wrapper here (unlike the nvidia/gemini
+    clients) - Hermes runs locally, so a connection failure almost
+    always means the local server isn't up, not a fluke worth retrying."""
+    return run_with_json_retry(lambda: _call_hermes(prompt, expects_json), expects_json)
 
 
 def _call_hermes(prompt: str, expects_json: bool) -> str:
@@ -55,11 +48,3 @@ def _call_hermes(prompt: str, expects_json: bool) -> str:
     )
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"].strip()
-
-
-def _parse_json_response(content: str) -> Any:
-    """Strips markdown code fences the LLM sometimes adds despite
-    instructions, then parses. Raises JSONDecodeError untouched so the
-    caller (run_task) can decide whether to retry."""
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.MULTILINE).strip()
-    return json.loads(cleaned)

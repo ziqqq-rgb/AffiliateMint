@@ -29,7 +29,7 @@ from app.models import (
 )
 from app.services.affiliate_link import append_buy_link
 from agents.threads_agent import generate_threads_posts
-from app.models import ThreadsPost 
+from app.models import ThreadsPost
 from app.config import settings
 
 
@@ -70,6 +70,45 @@ def _build_dossier(product: ScrapedProduct) -> ResearchDossier:
     )
 
 
+def _build_and_save_script_variations(
+    session: Session, dossier: ResearchDossier, product: ScrapedProduct
+) -> list[ScriptVariation]:
+    """Calls the script agent and saves its output as ScriptVariation
+    rows. Shared by start_scripting (manual endpoint) and
+    run_full_pipeline_task (one-click auto pipeline) so the two paths
+    can't drift apart - they used to build this list independently."""
+    variations = []
+    for raw_entry in generate_scripts(dossier):
+        entry = _append_shopee_buy_link(raw_entry, product)
+        variation = ScriptVariation(
+            product_id=dossier.product_id,
+            angle_type=entry["angle_type"],
+            hook_ms=entry["hook_ms"],
+            body_ms=entry["body_ms"],
+            cta_ms=entry["cta_ms"],
+            caption_ms=entry["caption_ms"],
+            hashtags=json.dumps(entry["hashtags"]),
+            visual_notes=entry["visual_notes"],
+        )
+        session.add(variation)
+        variations.append(variation)
+    return variations
+
+
+def _build_and_save_threads_posts(
+    session: Session, dossier: ResearchDossier, product: ScrapedProduct
+) -> list[ThreadsPost]:
+    """Shopee's equivalent of _build_and_save_script_variations - one
+    block of post text per variation instead of a multi-shot script."""
+    posts = []
+    for text in generate_threads_posts(dossier):
+        post = ThreadsPost(product_id=product.id, post_text=append_buy_link(text, product))
+        session.add(post)
+        posts.append(post)
+    session.flush()  # assigns post.id so it can be referenced below, without committing yet
+    return posts
+
+
 # --- Manual, gated stages -----------------------------------------------
 # Kept for direct API/MCP use. The dashboard no longer calls these on their
 # own - see the one-click flow below instead.
@@ -95,24 +134,9 @@ def start_scripting(session: Session, dossier_id: int) -> list[ScriptVariation]:
     dossier = session.get(ResearchDossier, dossier_id)
     if dossier is None:
         raise ValueError(f"No ResearchDossier with id {dossier_id}")
-
     product = session.get(ScrapedProduct, dossier.product_id)
 
-    variations = []
-    for raw_entry in generate_scripts(dossier):
-        entry = _append_shopee_buy_link(raw_entry, product)
-        variation = ScriptVariation(
-            product_id=dossier.product_id,
-            angle_type=entry["angle_type"],
-            hook_ms=entry["hook_ms"],
-            body_ms=entry["body_ms"],
-            cta_ms=entry["cta_ms"],
-            caption_ms=entry["caption_ms"],
-            hashtags=json.dumps(entry["hashtags"]),
-            visual_notes=entry["visual_notes"],
-        )
-        session.add(variation)
-        variations.append(variation)
+    variations = _build_and_save_script_variations(session, dossier, product)
 
     card = _card_for_product(session, dossier.product_id)
     if card:
@@ -165,33 +189,8 @@ def select_script(session: Session, script_id: int) -> ContentCard:
     session.refresh(card)
     return card
 
-def _generate_and_save_scripts(session: Session, dossier: ResearchDossier, product: ScrapedProduct) -> None:
-    """TikTok Shop path: 3 video script angles."""
-    for raw_entry in generate_scripts(dossier):
-        entry = _append_shopee_buy_link(raw_entry, product)
-        session.add(
-            ScriptVariation(
-                product_id=product.id,
-                angle_type=entry["angle_type"],
-                hook_ms=entry["hook_ms"],
-                body_ms=entry["body_ms"],
-                cta_ms=entry["cta_ms"],
-                caption_ms=entry["caption_ms"],
-                hashtags=json.dumps(entry["hashtags"]),
-                visual_notes=entry["visual_notes"],
-            )
-        )
 
-
-def _generate_and_save_threads_posts(session, dossier, product) -> list[ThreadsPost]:
-    posts = []
-    for text in generate_threads_posts(dossier):
-        post = ThreadsPost(product_id=product.id, post_text=append_buy_link(text, product))
-        session.add(post)
-        posts.append(post)
-    session.flush()  # assigns post.id so it can be referenced below, without committing yet
-    return posts
-
+# --- One-click pipeline (product -> dossier -> script/posts) -------------
 
 def start_full_pipeline(session: Session, product_id: int) -> ContentCard:
     """Flips the `is_generating` lock and returns immediately. Raises if a
@@ -223,14 +222,14 @@ def run_full_pipeline_task(product_id: int) -> None:
             session.refresh(dossier)
 
             if product.platform == Platform.SHOPEE:
-                posts = _generate_and_save_threads_posts(session, dossier, product)
+                posts = _build_and_save_threads_posts(session, dossier, product)
                 if settings.auto_publish_shopee_threads:
                     from app.services.threads_pipeline import auto_select_and_publish
                     auto_select_and_publish(session, posts)
                 else:
                     card.status = CardStatus.SCRIPTED_PENDING
             else:
-                _generate_and_save_scripts(session, dossier, product)
+                _build_and_save_script_variations(session, dossier, product)
                 card.status = CardStatus.SCRIPTED_PENDING
 
             card.status = CardStatus.SCRIPTED_PENDING
@@ -239,6 +238,7 @@ def run_full_pipeline_task(product_id: int) -> None:
             card.is_generating = False
             session.add(card)
             session.commit()
+
 
 def advance_card_status(session: Session, card_id: int, new_status: CardStatus) -> ContentCard:
     card = session.get(ContentCard, card_id)
@@ -270,6 +270,7 @@ def get_scripts_for_product(session: Session, product_id: int) -> list[ScriptVar
     statement = select(ScriptVariation).where(ScriptVariation.product_id == product_id)
     return list(session.exec(statement))
 
+
 def clear_untouched_products(session: Session) -> int:
     """Deletes ScrapedProduct + ContentCard rows for cards nobody has
     chosen to work on yet (added_to_progress_at is still null) - this is
@@ -299,6 +300,7 @@ def clear_untouched_products(session: Session) -> int:
 
     session.commit()
     return count
+
 
 def add_card_to_progress(session: Session, card_id: int) -> ContentCard:
     """Moves a card from Board to Progress. Idempotent - calling it twice
