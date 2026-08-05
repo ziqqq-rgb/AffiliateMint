@@ -1,5 +1,37 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Landing page hero: a single dot travels the pipeline path, looping
+   slowly. This is the only orchestrated animation on the landing page -
+   everything else (cards, buttons) uses plain, short transitions. */
+@keyframes travel-dot {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+.pipeline-dot {
+  offset-path: var(--pipeline-path);
+  animation: travel-dot 4.5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-dot {
+    animation: none;
+    opacity: 0;
+  }
+}
