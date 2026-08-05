@@ -1,5 +1,10 @@
 # AffiliateMint
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/73de46cc-ca1d-45b0-83be-346775f9bd49" alt="AffiliateMint Logo" width="350">
+</p>
+
+
 **An end-to-end affiliate marketing automation platform for the Malaysian TikTok Shop and Shopee affiliate markets.**
 
 AffiliateMint scrapes trending products, researches them with AI, writes platform-native content, and publishes it — with a feedback loop that helps future content lean on what has actually worked before.
